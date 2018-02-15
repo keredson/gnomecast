@@ -34,17 +34,6 @@ This is a known bug in `html5lib` (used by `pycaptions`).  Run this to fix it:
 # pip3 install --upgrade html5lib==1.0b8
 ```
 
-If you see:
-
-```
-  what():  This program requires version 3.5.0 of the Protocol Buffer runtime library, but the installed version is 3.0.0.  Please update your library.  If you compiled the program yourself, make sure that your headers are from the same version of Protocol Buffers as your link-time library.  (Version verification failed in "google/protobuf/descriptor.pb.cc".)
-```
-
-Please run:
-
-```
-$ pip3 install --upgrade protobuf
-```
 
 Thanks To...
 ------------
