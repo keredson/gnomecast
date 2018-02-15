@@ -1,4 +1,4 @@
-import codecs, contextlib, mimetypes, os, re, signal, socket, subprocess, tempfile, threading, time
+import base64, codecs, contextlib, mimetypes, os, re, signal, socket, subprocess, tempfile, threading, time
 
 DEPS_MET = True
 try:
@@ -13,13 +13,11 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 
-__version__ = '0.1.2'
+__version__ = '0.1.9'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
 
-
-CAST_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)),'gnomecast','cast.png')
 
 def throttle(seconds=2):
   def decorator(f):
@@ -527,13 +525,13 @@ class Gnomecast(object):
       converter.read(caps, pycaption.detect_format(caps)())
       subtitles = converter.write(pycaption.WebVTTWriter())
       new_subtitles.append((subtitle_id, subtitles))
+      os.remove(srt_fn)
     def f():
       pos = len(self.subtitle_store)
       for id, subs in new_subtitles:
         self.subtitle_store.append([id, pos-2, subs])
         pos += 1
     GLib.idle_add(f)
-    os.remove(srt_fn)
 
   def on_key_press(self, widget, event, user_data=None):
     key = Gdk.keyval_name(event.keyval)
@@ -575,6 +573,93 @@ def parse_ffmpeg_time(time_s):
   hours, minutes, seconds = (float(s) for s in time_s.split(':'))
   return hours*60*60 + minutes*60 + seconds
   
+CAST_PNG_DATA = base64.b64decode('''
+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
+FS9W+IQr2JwAAAAASUVORK5CYII=
+'''.strip())
+
+CAST_PNG = '/tmp/gnomecast.png'
+if not os.path.isfile(CAST_PNG):
+  with open(CAST_PNG, 'wb') as f:
+    f.write(CAST_PNG_DATA)
 
 if DEPS_MET and __name__=='__main__':
   caster = Gnomecast()

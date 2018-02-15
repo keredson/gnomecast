@@ -19,7 +19,6 @@ setup(
   author='Derek Anderson',
   author_email='public@kered.org',
   url='https://github.com/keredson/gnomecast',
-  packages=['gnomecast'],
   py_modules=['gnomecast'],
   classifiers=[
     'Development Status :: 4 - Beta',
@@ -29,10 +28,10 @@ setup(
     'Programming Language :: Python',
     'Programming Language :: Python :: 3',
   ],
-  install_requires=['pychromecast','bottle','pycaption'],
-  package_data={'gnomecast': ['gnomecast/cast.png']},
-  package_dir={'gnomecast': 'gnomecast'},
+  install_requires=['pychromecast','bottle','pycaption','paste'],
+  package_data={'': ['cast.png']},
   include_package_data=True,
+  data_files = [('', ['cast.png'])],
 )
 
 
