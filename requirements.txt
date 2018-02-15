@@ -1,0 +1,4 @@
+html5lib==1.0b8
+pychromecast
+bottle
+pycaption

@@ -1,14 +1,25 @@
-import codecs, contextlib, mimetypes, os, re, socket, subprocess, tempfile, threading, time
-import pychromecast
+import codecs, contextlib, mimetypes, os, re, signal, socket, subprocess, tempfile, threading, time
+
+DEPS_MET = True
+try:
+  import pychromecast
+  import bottle
+  import pycaption
+except Exception as e:
+  print(e)
+  DEPS_MET = False
+  
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
-import signal
-import bottle
-import pycaption
+
+__version__ = '0.1.1'
+
+if DEPS_MET:
+  pycaption.WebVTTWriter._encode = lambda self, s: s
 
 
-pycaption.WebVTTWriter._encode = lambda self, s: s
+CAST_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)),'gnomecast','cast.png')
 
 def throttle(seconds=2):
   def decorator(f):
@@ -124,7 +135,7 @@ class Transcoder(object):
       os.remove(self.trans_fn)
 
 
-class MovieCaster(object):
+class Gnomecast(object):
 
   def __init__(self):
     self.ip = (([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [[(s.connect(("8.8.8.8", 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) + [None])[0]
@@ -263,7 +274,7 @@ class MovieCaster(object):
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     
     self.thumbnail_image = Gtk.Image()
-    self.thumbnail_image.set_from_file("cast.png")
+    self.thumbnail_image.set_from_file(CAST_PNG)
     vbox_outer.pack_start(self.thumbnail_image, True, False, 0)
     alignment = Gtk.Alignment(xscale=1, yscale=1)
     alignment.add(vbox)
@@ -473,7 +484,7 @@ class MovieCaster(object):
     
   def select_file(self, fn):
     self.file_button.set_label(os.path.basename(fn))
-    self.thumbnail_image.set_from_file("cast.png")
+    self.thumbnail_image.set_from_file(CAST_PNG)
     self.fn = fn
     threading.Thread(target=self.gen_thumbnail).start()
     threading.Thread(target=self.update_transcoder).start()
@@ -565,8 +576,8 @@ def parse_ffmpeg_time(time_s):
   return hours*60*60 + minutes*60 + seconds
   
 
-if __name__=='__main__':
-  caster = MovieCaster()
+if DEPS_MET and __name__=='__main__':
+  caster = Gnomecast()
   caster.run()
   
 
