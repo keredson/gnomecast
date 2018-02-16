@@ -672,8 +672,11 @@ if not os.path.isfile(CAST_PNG):
   with open(CAST_PNG, 'wb') as f:
     f.write(CAST_PNG_DATA)
 
-if DEPS_MET and __name__=='__main__':
+def main():
   caster = Gnomecast()
   caster.run()
+
+if DEPS_MET and __name__=='__main__':
+  main()
   
 
