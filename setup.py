@@ -29,9 +29,6 @@ setup(
     'Programming Language :: Python :: 3',
   ],
   install_requires=['pychromecast','bottle','pycaption','paste'],
-  package_data={'': ['cast.png']},
-  include_package_data=True,
-  data_files=[('', ['cast.png'])],
   entry_points={
     'gui_scripts': [
       'gnomecast = gnomecast:main',

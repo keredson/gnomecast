@@ -25,7 +25,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 
-__version__ = '0.2.1'
+__version__ = '0.2.5'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -276,7 +276,7 @@ class Gnomecast(object):
 
 
   def build_gui(self):
-    self.win = win = Gtk.Window(title='GnomeCast')
+    self.win = win = Gtk.Window(title='GnomeCast v%s' % __version__)
     win.set_border_width(0)
     win.set_icon(self.get_logo_pixbuf(color='#000000'))
     self.cast_store = cast_store = Gtk.ListStore(object, str)
