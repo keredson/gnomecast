@@ -47,6 +47,11 @@ Thanks To...
 - https://github.com/pbs/pycaption
 - https://www.ffmpeg.org/
 
+And everyone who made this project #2 on GitHub's trending list!  That's so awesome!!!
+
+![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/trending.png)
+
+
 Transcoding
 -----------
 Chromecasts only support a handful of media formats.  See: https://developers.google.com/cast/docs/media
