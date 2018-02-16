@@ -18,7 +18,7 @@ Please run:
 $ pip3 install gnomecast
 ```
 
-If installing in a `mkvirtualenv`, make sure you include the `--system-site-packages` parameter to get the GTK bindings.
+If installing in a `mkvirtualenv` built virtual environment, make sure you include the `--system-site-packages` parameter to get the GTK bindings.
 
 Run
 ---
