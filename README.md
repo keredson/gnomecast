@@ -54,7 +54,7 @@ Now if you have that same `.mkv` file with and `A3C` audio stream (which Chromec
 
 If neither your file's audio or video streams are supported, then it'll do a full transcode (at around 5x).
 
-We write the entire transcoded file to your `/tmp` directory in order to make scrubbing fast and glitch-free, a good trade-off IMO.  Homefully you're not running your drive at less than one video's worth of free space!
+We write the entire transcoded file to your `/tmp` directory in order to make scrubbing fast and glitch-free, a good trade-off IMO.  Hopefully you're not running your drive at less than one video's worth of free space!
 
 Subtitles
 ---------
