@@ -25,7 +25,7 @@ python3 -m gnomecast
 ```
 
 If you see:
-```
+```python
 AttributeError: module 'html5lib.treebuilders' has no attribute '_base'
 ```
 
