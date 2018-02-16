@@ -1,4 +1,15 @@
-import base64, codecs, contextlib, mimetypes, os, re, signal, socket, subprocess, tempfile, threading, time
+import base64
+import codecs
+import contextlib
+import mimetypes
+import os
+import re
+import signal
+import socket
+import subprocess
+import tempfile
+import threading
+import time
 
 DEPS_MET = True
 try:
@@ -73,10 +84,10 @@ class Transcoder(object):
       self.done = False
       self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='movie_caster_')[1]
       os.remove(self.trans_fn)
-      #flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
+      # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a', 'mp3' if self.transcode_audio else 'copy', self.trans_fn] # '-movflags', 'faststart'
-      #args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
-      #args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
+      # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
+      # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
       print(args)
       self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
       t = threading.Thread(target=self.monitor)
@@ -167,7 +178,7 @@ class Gnomecast(object):
 
     @app.route('/subtitles.vtt')
     def subtitles():
-      #response = bottle.static_file(self.subtitles_fn, root='/', mimetype='text/vtt')
+      # response = bottle.static_file(self.subtitles_fn, root='/', mimetype='text/vtt')
       response = bottle.response
       response.headers['Access-Control-Allow-Origin'] = '*'
       response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD'
@@ -189,7 +200,7 @@ class Gnomecast(object):
       response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
       return response
 
-    #app.run(host=self.ip, port=self.port, server='paste', daemon=True)
+    # app.run(host=self.ip, port=self.port, server='paste', daemon=True)
     from paste import httpserver
     from paste.translogger import TransLogger
     handler = TransLogger(app, setup_console_handler=True)
@@ -412,11 +423,11 @@ class Gnomecast(object):
       if self.subtitles:
         kwargs['subtitles'] = 'http://%s:%s/subtitles.vtt' % (self.ip, self.port)
       mc.play_media('http://%s:%s/video.mp4' % (self.ip, self.port), 'video/mp4', **kwargs)
-#      mc.update_status()
+      # mc.update_status()
       print(cast.status)
       print(mc.status)
-#      mc.enable_subtitle(1)
-      #mc.block_until_active()
+      # mc.enable_subtitle(1)
+      # mc.block_until_active()
 
   def on_file_clicked(self, widget):
       dialog = Gtk.FileChooserDialog("Please choose a video file...", self.win,
