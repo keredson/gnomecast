@@ -5,6 +5,7 @@ GnomeCast
 
 This is a native Linux GUI for casting local files to ChromeCast devices.  It supports:
 
+- Both audio and video files (anything `ffmpeg` can read)
 - Realtime transcoding (only when needed)
 - Subtitles (embedded and external SRT files)
 - Fast scrubbing (waiting 20s for buffering to skip 30s ahead is wrong!)
