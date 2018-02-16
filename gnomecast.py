@@ -25,7 +25,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 
-__version__ = '0.1.10'
+__version__ = '0.2.0'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -63,7 +63,7 @@ class Transcoder(object):
       output = e.output.decode().split('\n')
     container = fn.lower().split(".")[-1]
     video_codec = None
-    transcode_audio = True
+    transcode_audio = container not in ('aac','mp3','wav')
     for line in output:
       print(line)
       line = line.strip()
@@ -74,9 +74,10 @@ class Transcoder(object):
 
     print('Transcoder', fn, container, video_codec, transcode_audio)
     
-    self.transcode_video = video_codec!='h264'
+    self.transcode_video = video_codec and video_codec!='h264'
     self.transcode_audio = transcode_audio
-    self.transcode = container!='mp4' or self.transcode_video or self.transcode_audio
+    self.transcode_container = container not in ('mp4','aac','mp3','wav')
+    self.transcode = self.transcode_container or self.transcode_video or self.transcode_audio
     self.progress_bytes = 0
     self.progress_seconds = 0
     self.done_callback = done_callback
@@ -302,7 +303,7 @@ class Gnomecast(object):
     vbox.pack_start(cast_combo, False, False, 0)
     win.add(vbox_outer)
 
-    self.file_button = button1 = Gtk.Button("Choose a video file...")
+    self.file_button = button1 = Gtk.Button("Choose an audio or video file...")
     button1.connect("clicked", self.on_file_clicked)
     vbox.pack_start(button1, False, False, 0)
 
@@ -450,6 +451,7 @@ class Gnomecast(object):
       filter_py = Gtk.FileFilter()
       filter_py.set_name("Videos")
       filter_py.add_mime_type("video/*")
+      filter_py.add_mime_type("audio/*")
       dialog.add_filter(filter_py)
         
       response = dialog.run()
@@ -519,10 +521,16 @@ class Gnomecast(object):
     GLib.idle_add(self.update_media_button_states)
         
   def gen_thumbnail(self):
-    thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
-    os.remove(thumbnail_fn)
+    container = self.fn.lower().split(".")[-1]
+    thumbnail_fn = None
     subtitle_ids = []
-    self.ffmpeg_desc = output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=800:-1', thumbnail_fn], stderr=subprocess.STDOUT)
+    if container in ('aac','mp3','wav'):
+      cmd = ['ffmpeg', '-i', self.fn]
+    else:
+      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
+      os.remove(thumbnail_fn)
+      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=800:-1', thumbnail_fn]
+    self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
       if line.startswith('Duration:'):
@@ -533,8 +541,9 @@ class Gnomecast(object):
         subtitle_ids.append(id)
     print('subtitle_ids', subtitle_ids)
     def f():
-      self.thumbnail_image.set_from_file(thumbnail_fn)
-      os.remove(thumbnail_fn)
+      if thumbnail_fn:
+        self.thumbnail_image.set_from_file(thumbnail_fn)
+        os.remove(thumbnail_fn)
       self.update_status()
     GLib.idle_add(f)
     new_subtitles = []
