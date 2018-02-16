@@ -1,4 +1,4 @@
-![alt text](screenshot.png)
+![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/screenshot.png)
 
 GnomeCast
 =========
