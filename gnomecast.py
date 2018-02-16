@@ -25,7 +25,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 
-__version__ = '0.2.5'
+__version__ = '0.2.6'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -213,7 +213,7 @@ class Gnomecast(object):
     if len(fn) > 60:
       fn = fn[:50] + '...' + fn[-10:]
     notes = [fn]
-    if self.duration:
+    if self.duration is not None:
       notes.append(self.humanize_seconds(self.duration))
     else:
       notes.append('Loading...')
@@ -525,7 +525,7 @@ class Gnomecast(object):
     thumbnail_fn = None
     subtitle_ids = []
     if container in ('aac','mp3','wav'):
-      cmd = ['ffmpeg', '-i', self.fn]
+      cmd = ['ffmpeg', '-i', self.fn, '-f', 'ffmetadata', '-']
     else:
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
       os.remove(thumbnail_fn)
