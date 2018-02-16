@@ -29,6 +29,12 @@ setup(
     'Programming Language :: Python :: 3',
   ],
   install_requires=['pychromecast','bottle','pycaption','paste'],
+  setup_requires=['install_freedesktop'],
+  data_files=[
+    ('share/icons/hicolor/16x16/apps', ['icons/gnomecast_16.png']),
+    ('share/icons/hicolor/48x48/apps', ['icons/gnomecast_48.png']),
+    ('share/icons/hicolor/scalable/apps', ['icons/gnomecast.svg']),
+  ],
   entry_points={
     'gui_scripts': [
       'gnomecast = gnomecast:main',

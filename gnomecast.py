@@ -25,7 +25,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 
-__version__ = '0.2.5'
+__version__ = '0.2.6'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
