@@ -34,6 +34,8 @@ This is a known bug in `html5lib` (used by `pycaptions`).  Run this to fix it:
 # pip3 install --upgrade html5lib==1.0b8
 ```
 
+**Please report bugs!**
+
 
 Thanks To...
 ------------
@@ -42,4 +44,14 @@ Thanks To...
 - https://github.com/pbs/pycaption
 - https://www.ffmpeg.org/
 
-Please report bugs!
+Transcoding
+-----------
+Chromecasts only support a handful of media formats.  See: https://developers.google.com/cast/docs/media
+
+So some amount of transcoding is necessary if your video files don't conform.  But we're smart about it.  If you have an `.mkv` file with `h264` video and `AAC` audio, we use `ffmpeg` to simply rewrite the container (to `.mp4`) without touching the underlying streams, which my XPS 13 can at around 100x realtime (it's fully IO bound).
+
+Now if you have that same `.mkv` file with and `A3C` audio stream (which Chromecast doesn't support) we'll rewrite the container, copy the `h264` stream as is and only transcode the audio (at about 20x).
+
+If neither your file's audio or video streams are supported, then it's do a full transcode (at around 5x).
+
+We write the entire transcoded file to your `/tmp` directory in order to make scrubbing fast and glitch-free, a good trade-off IMO.  Homefully you're not running your drive at less than one video's worth of free space!
