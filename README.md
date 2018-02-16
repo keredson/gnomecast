@@ -52,10 +52,10 @@ So some amount of transcoding is necessary if your video files don't conform.  B
 
 Now if you have that same `.mkv` file with and `A3C` audio stream (which Chromecast doesn't support) we'll rewrite the container, copy the `h264` stream as is and only transcode the audio (at about 20x).
 
-If neither your file's audio or video streams are supported, then it's do a full transcode (at around 5x).
+If neither your file's audio or video streams are supported, then it'll do a full transcode (at around 5x).
 
 We write the entire transcoded file to your `/tmp` directory in order to make scrubbing fast and glitch-free, a good trade-off IMO.  Homefully you're not running your drive at less than one video's worth of free space!
 
 Subtitles
 ---------
-Chromecast only supports a handful of subtitle formats, .`srt` not included.  But it does support [WebVTT](https://w3c.github.io/webvtt/).  So we extract whatever subtitles are in your video, convert them to WebVTT, and then reattach them to the video through Chomecast's API.
+Chromecast only supports a handful of subtitle formats, `.srt` not included.  But it does support [WebVTT](https://w3c.github.io/webvtt/).  So we extract whatever subtitles are in your video, convert them to WebVTT, and then reattach them to the video through Chomecast's API.
