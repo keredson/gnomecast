@@ -1,6 +1,7 @@
 import base64
 import codecs
 import contextlib
+import io
 import mimetypes
 import os
 import re
@@ -22,7 +23,7 @@ except Exception as e:
   
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 
 __version__ = '0.1.9'
 
@@ -276,6 +277,7 @@ class Gnomecast(object):
   def build_gui(self):
     self.win = win = Gtk.Window(title='GnomeCast')
     win.set_border_width(0)
+    win.set_icon(self.get_logo_pixbuf(color='#000000'))
     self.cast_store = cast_store = Gtk.ListStore(object, str)
     cast_store.append([None, "Searching local network - please wait..."])
 
@@ -283,7 +285,7 @@ class Gnomecast(object):
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     
     self.thumbnail_image = Gtk.Image()
-    self.thumbnail_image.set_from_file(CAST_PNG)
+    self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     vbox_outer.pack_start(self.thumbnail_image, True, False, 0)
     alignment = Gtk.Alignment(xscale=1, yscale=1)
     alignment.add(vbox)
@@ -383,6 +385,16 @@ class Gnomecast(object):
   def stop_clicked(self, widget):
     if not self.cast: return
     self.cast.media_controller.stop()
+    
+  def get_logo_pixbuf(self, width=200, color=None):
+    svg = LOGO_SVG
+    if color:
+      svg = svg.replace('#aaaaaa', color)
+    f = Gio.MemoryInputStream.new_from_bytes(GLib.Bytes.new(svg.encode()))
+    preserve_aspect_ratio = True
+    pixbuf = GdkPixbuf.Pixbuf.new_from_stream(f, None)
+    return pixbuf
+
   
   def quit(self, a=0, b=0):
     if self.transcoder:
@@ -493,7 +505,7 @@ class Gnomecast(object):
     
   def select_file(self, fn):
     self.file_button.set_label(os.path.basename(fn))
-    self.thumbnail_image.set_from_file(CAST_PNG)
+    self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
     threading.Thread(target=self.gen_thumbnail).start()
     threading.Thread(target=self.update_transcoder).start()
@@ -584,93 +596,115 @@ def parse_ffmpeg_time(time_s):
   hours, minutes, seconds = (float(s) for s in time_s.split(':'))
   return hours*60*60 + minutes*60 + seconds
   
-CAST_PNG_DATA = base64.b64decode('''
-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
-FS9W+IQr2JwAAAAASUVORK5CYII=
-'''.strip())
+  
+# this is embedded here because i gave up trying to get pip to handle a non-python file
+LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
 
-CAST_PNG = '/tmp/gnomecast.png'
-if not os.path.isfile(CAST_PNG):
-  with open(CAST_PNG, 'wb') as f:
-    f.write(CAST_PNG_DATA)
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   version="1.0"
+   width="400"
+   height="340"
+   id="svg1903"
+   sodipodi:docname="logo2.svg"
+   inkscape:version="0.92.1 r15371">
+  <metadata
+     id="metadata18">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1227"
+     inkscape:window-height="926"
+     id="namedview16"
+     showgrid="false"
+     fit-margin-top="100"
+     fit-margin-left="100"
+     fit-margin-right="100"
+     fit-margin-bottom="100"
+     inkscape:zoom="0.48337649"
+     inkscape:cx="272.94153"
+     inkscape:cy="365.88387"
+     inkscape:window-x="1506"
+     inkscape:window-y="557"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg1903" />
+  <defs
+     id="defs1905" />
+  <g
+     transform="matrix(0.32014843,0,0,0.32014843,123.60933,34.982023)"
+     id="layer1">
+    <g
+       transform="translate(925.8326,120.8762)"
+       id="g3963">
+      <g
+         transform="matrix(2.914897,0,0,2.914897,-717.5904,128.5015)"
+         style="fill:#aaaaaa;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-miterlimit:4"
+         id="g3771">
+        <g
+           style="fill:#aaaaaa;fill-opacity:1"
+           id="g3773">
+          <path
+             d="M 86.068,0 C 61.466,0 56.851,35.041 70.691,35.041 84.529,35.041 110.671,0 86.068,0 Z"
+             style="fill:#aaaaaa;fill-opacity:1"
+             id="path3775"
+             inkscape:connector-curvature="0" />
+          <path
+             d="M 45.217,30.699 C 52.586,31.149 60.671,2.577 46.821,4.374 32.976,6.171 37.845,30.249 45.217,30.699 Z"
+             style="fill:#aaaaaa;fill-opacity:1"
+             id="path3777"
+             inkscape:connector-curvature="0" />
+          <path
+             d="M 11.445,48.453 C 16.686,46.146 12.12,23.581 3.208,29.735 -5.7,35.89 6.204,50.759 11.445,48.453 Z"
+             style="fill:#aaaaaa;fill-opacity:1"
+             id="path3779"
+             inkscape:connector-curvature="0" />
+          <path
+             d="M 26.212,36.642 C 32.451,35.37 32.793,9.778 21.667,14.369 10.539,18.961 19.978,37.916 26.212,36.642 Z"
+             style="fill:#aaaaaa;fill-opacity:1"
+             id="path3781"
+             inkscape:connector-curvature="0" />
+          <path
+             d="m 58.791,93.913 c 1.107,8.454 -6.202,12.629 -13.36,7.179 C 22.644,83.743 83.16,75.088 79.171,51.386 75.86,31.712 15.495,37.769 8.621,68.553 3.968,89.374 27.774,118.26 52.614,118.26 c 12.22,0 26.315,-11.034 28.952,-25.012 C 83.58,82.589 57.867,86.86 58.791,93.913 Z"
+             style="fill:#aaaaaa;fill-opacity:1"
+             id="path3783"
+             inkscape:connector-curvature="0" />
+        </g>
+      </g>
+    </g>
+  </g>
+  <g
+     id="cast"
+     transform="matrix(0.53475936,0,0,0.53475936,50,20)">
+    <path
+       d="M 510,51 H 51 C 22.95,51 0,73.95 0,102 v 76.5 H 51 V 102 H 510 V 459 H 331.5 v 51 H 510 c 28.05,0 51,-22.95 51,-51 V 102 C 561,73.95 538.05,51 510,51 Z M 0,433.5 V 510 H 76.5 C 76.5,466.65 43.35,433.5 0,433.5 Z m 0,-102 v 51 c 71.4,0 127.5,56.1 127.5,127.5 h 51 C 178.5,410.55 99.45,331.5 0,331.5 Z m 0,-102 v 51 c 127.5,0 229.5,102 229.5,229.5 h 51 C 280.5,354.45 155.55,229.5 0,229.5 Z"
+       id="path12"
+       style="fill:#aaaaaa;fill-opacity:1"
+       inkscape:connector-curvature="0" />
+  </g>
+</svg>'''
 
 if DEPS_MET and __name__=='__main__':
   caster = Gnomecast()
