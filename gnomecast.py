@@ -715,8 +715,11 @@ LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   </g>
 </svg>'''
 
-if DEPS_MET and __name__=='__main__':
+def main():
   caster = Gnomecast()
   caster.run()
+
+if DEPS_MET and __name__=='__main__':
+  main()
   
 
