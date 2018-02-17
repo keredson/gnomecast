@@ -8,6 +8,7 @@ import re
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -21,9 +22,24 @@ except Exception as e:
   print(e)
   DEPS_MET = False
   
-import gi
-gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
+try:
+  import gi
+  gi.require_version('Gtk', '3.0')
+  from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
+except ImportError:
+  print('-'*70)
+  print('Python package "gi" (for building the GUI) not found.')
+  print()
+  print('If on Debian or Ubuntu, please run:')
+  print('$ sudo apt-get install python3-gi')
+  print('For other distributions please look up the equivalent package.')
+  print()
+  print("If this doesn't work, please report the error here:")
+  print('https://github.com/keredson/gnomecast')
+  print()
+  print('Thanks! - Gnomecast')
+  print('-'*70)
+  sys.exit(1)
 
 __version__ = '0.2.6'
 
