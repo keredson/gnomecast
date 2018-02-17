@@ -41,7 +41,7 @@ except ImportError:
   print('-'*70)
   sys.exit(1)
 
-__version__ = '0.2.7'
+__version__ = '0.2.8'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
