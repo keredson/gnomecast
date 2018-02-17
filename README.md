@@ -15,7 +15,7 @@ Install
 Please run:
 
 ```
-$ pip3 install gnomecast
+$ sudo pip3 install gnomecast
 ```
 
 If installing in a `mkvirtualenv` built virtual environment, make sure you include the `--system-site-packages` parameter to get the GTK bindings.
@@ -25,6 +25,12 @@ Run
 
 ```
 $ gnomecast
+```
+
+If you ran `pip3` without `sudo` when installing, and `$ gnomecast` doesn't work due to your local path setup, you can also run it as:
+
+```
+$ python3 -m gnomecast
 ```
 
 If you see:
