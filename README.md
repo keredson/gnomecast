@@ -59,7 +59,7 @@ Thanks To...
 - https://github.com/pbs/pycaption
 - https://www.ffmpeg.org/
 
-And everyone who made this project #2 on GitHub's trending list!  That's so awesome!!!
+And everyone who made this project hit [HN's front page](https://news.ycombinator.com/item?id=16386173) and #2 on GitHub's trending list!  That's so awesome!!!
 
 ![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/trending.png)
 
