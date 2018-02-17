@@ -41,7 +41,7 @@ except ImportError:
   print('-'*70)
   sys.exit(1)
 
-__version__ = '0.2.8'
+__version__ = '0.2.9'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -179,6 +179,7 @@ class Gnomecast(object):
   def run(self):
     self.build_gui()
     self.init_casts()
+    threading.Thread(target=self.check_ffmpeg).start()
     t = threading.Thread(target=self.start_server)
     t.daemon = True
     t.start()
@@ -186,6 +187,25 @@ class Gnomecast(object):
     t.daemon = True
     t.start()
     Gtk.main()
+    
+  def check_ffmpeg(self):
+    time.sleep(1)
+    ffmpeg_available = True
+    print('check_ffmpeg')
+    try:
+      print(subprocess.check_output(['which', 'ffmpeg']))
+    except Exception as e:
+      print(e, e.output)
+      ffmpeg_available = False
+    if not ffmpeg_available:
+      def f():
+        dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "FFMPEG not Found")
+        dialog.format_secondary_text("Could not find ffmpeg.  Please run 'sudo apt-get install ffmpeg'.")
+        dialog.run()
+        dialog.destroy()
+        # TODO: there's a weird pause here closing the dialog.  why?
+        sys.exit(1)
+      GLib.idle_add(f)
     
   def start_server(self):
     app = self.app
