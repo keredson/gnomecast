@@ -23,6 +23,12 @@ If installing in a `mkvirtualenv` built virtual environment, make sure you inclu
 Run
 ---
 
+After installing, log out and log back in.  It will be in your launcher:
+
+![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/launcher.png)
+
+You can also run it from the command line:
+
 ```
 $ gnomecast
 ```
