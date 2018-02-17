@@ -34,7 +34,7 @@ AttributeError: module 'html5lib.treebuilders' has no attribute '_base'
 
 This is a known bug in `html5lib` (used by `pycaptions`).  Run this to fix it:
 ```
-# pip3 install --upgrade html5lib==1.0b8
+$ pip3 install --upgrade html5lib==1.0b8
 ```
 
 *Please report bugs!*
