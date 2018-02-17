@@ -41,7 +41,7 @@ except ImportError:
   print('-'*70)
   sys.exit(1)
 
-__version__ = '0.2.6'
+__version__ = '0.2.7'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -73,15 +73,11 @@ class Transcoder(object):
     self.source_fn = fn
     self.p = None
 
-    try:
-      subprocess.check_output(['ffmpeg', '-i', fn], stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-      output = e.output.decode().split('\n')
+    output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
     container = fn.lower().split(".")[-1]
     video_codec = None
     transcode_audio = container not in ('aac','mp3','wav')
     for line in output:
-      print(line)
       line = line.strip()
       if line.startswith('Stream') and 'Video' in line:
         video_codec = line.split()[3]
@@ -143,10 +139,10 @@ class Transcoder(object):
         line += char
         if char == '\r':
           # frame=92578 fps=3937 q=-1.0 size= 1142542kB time=01:04:21.14 bitrate=2424.1kbits/s speed= 164x 
-          print(line)
           line = r.sub('=', line)
           items = [s.split('=') for s in line.split()]
           d = dict([x for x in items if len(x)==2])
+          print(d)
           self.progress_bytes = int(d.get('size','0kb')[:-2])*1024
           self.progress_seconds = parse_ffmpeg_time(d.get('time','00:00:00'))
           line = ''
