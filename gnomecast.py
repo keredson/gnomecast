@@ -166,7 +166,7 @@ class Gnomecast(object):
 
   def run(self):
     self.build_gui()
-    threading.Thread(target=self.init_cast).start()
+    self.init_casts()
     t = threading.Thread(target=self.start_server)
     t.daemon = True
     t.start()
@@ -209,6 +209,9 @@ class Gnomecast(object):
     httpserver.serve(handler, host=self.ip, port=str(self.port), daemon_threads=True)
 
   def update_status(self):
+    if self.fn is None:
+      self.file_button.set_label("Choose an audio or video file...")
+      return
     fn = os.path.basename(self.fn)
     if len(fn) > 60:
       fn = fn[:50] + '...' + fn[-10:]
@@ -248,7 +251,13 @@ class Gnomecast(object):
       if not seeking and mc.status.player_state=='PLAYING':
         GLib.idle_add(lambda: self.scrubber_adj.set_value(mc.status.current_time + time.time() - self.last_time_current_time))
 
-  def init_cast(self):
+  def init_casts(self, widget=None):
+    self.cast_store.clear()
+    self.cast_store.append([None, "Searching local network - please wait..."])
+    self.cast_combo.set_active(0)
+    threading.Thread(target=self.load_casts).start()
+
+  def load_casts(self):
     chromecasts = pychromecast.get_chromecasts()
     def f():
       self.cast_store.clear()
@@ -260,7 +269,7 @@ class Gnomecast(object):
         self.cast_store.append([cc, friendly_name])
       self.cast_combo.set_active(0)
     GLib.idle_add(f)
-
+  
   def update_media_button_states(self):
     mc = self.cast.media_controller if self.cast else None
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
@@ -280,7 +289,6 @@ class Gnomecast(object):
     win.set_border_width(0)
     win.set_icon(self.get_logo_pixbuf(color='#000000'))
     self.cast_store = cast_store = Gtk.ListStore(object, str)
-    cast_store.append([None, "Searching local network - please wait..."])
 
     vbox_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -293,14 +301,18 @@ class Gnomecast(object):
     alignment.set_padding(16, 20, 16, 16)
     vbox_outer.pack_start(alignment, False, False, 0)
 
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    vbox.pack_start(hbox, False, False, 0)
     self.cast_combo = cast_combo = Gtk.ComboBox.new_with_model(cast_store)
     cast_combo.set_entry_text_column(1)
     renderer_text = Gtk.CellRendererText()
     cast_combo.pack_start(renderer_text, True)
     cast_combo.add_attribute(renderer_text, "text", 1)
-    cast_combo.set_active(0)
+    hbox.pack_start(cast_combo, True, True, 0)
+    refresh_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_REFRESH))
+    refresh_button.connect("clicked", self.init_casts)
+    hbox.pack_start(refresh_button, False, False, 0)
 
-    vbox.pack_start(cast_combo, False, False, 0)
     win.add(vbox_outer)
 
     self.file_button = button1 = Gtk.Button("Choose an audio or video file...")
@@ -443,7 +455,7 @@ class Gnomecast(object):
       # mc.block_until_active()
 
   def on_file_clicked(self, widget):
-      dialog = Gtk.FileChooserDialog("Please choose a video file...", self.win,
+      dialog = Gtk.FileChooserDialog("Please choose an audio or video file...", self.win,
           Gtk.FileChooserAction.OPEN,
           (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
            Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
@@ -585,8 +597,6 @@ class Gnomecast(object):
           threading.Thread(target=self.update_transcoder).start()
       else:
           entry = combo.get_child()
-          print('entry', entry)
-#          print("Entered: %s" % entry.get_text())
 
   def on_subtitle_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
@@ -599,7 +609,6 @@ class Gnomecast(object):
           else: self.subtitles = subs
       else:
           entry = combo.get_child()
-          print('entry', entry)
 
 def parse_ffmpeg_time(time_s):
   hours, minutes, seconds = (float(s) for s in time_s.split(':'))
