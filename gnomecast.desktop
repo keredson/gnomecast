@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Encoding=UTF-8
-Name=GnomeCast
+Name=Gnomecast
 Comment=GTK Chromecast Streamer
 Exec=gnomecast
 Icon=gnomecast.svg
