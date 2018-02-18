@@ -1,9 +1,9 @@
 ![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/screenshot.png)
 
-GnomeCast
+Gnomecast
 =========
 
-This is a native Linux GUI for casting local files to ChromeCast devices.  It supports:
+This is a native Linux GUI for casting local files to Chromecast devices.  It supports:
 
 - Both audio and video files (anything `ffmpeg` can read)
 - Realtime transcoding (only when needed)
