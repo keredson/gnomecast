@@ -27,15 +27,19 @@ try:
   gi.require_version('Gtk', '3.0')
   from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gio
 except ImportError:
-  print('-'*70)
-  print('Python package "gi" (for building the GUI) not found.\n')
-  print('If on Debian or Ubuntu, please run:')
-  print('$ sudo apt-get install python3-gi\n')
-  print('For other distributions please look up the equivalent package.\n')
-  print("If this doesn't work, please report the error here:")
-  print('https://github.com/keredson/gnomecast\n')
-  print('Thanks! - Gnomecast')
-  print('-'*70)
+  line = "-"*70
+  ERROR_MESSAGE = """
+{}
+Python package "gi" (for building the GU not found.\n
+If on Debian or Ubuntu, please run:
+$ sudo apt-get install python3-gi\n
+For other distributions please look up the equivalent package.\n
+If this doesn't work, please report the error here:
+https://github.com/keredson/gnomecast\n
+Thanks! - Gnomecast
+{}
+"""
+  print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
 __version__ = '0.2.9'
