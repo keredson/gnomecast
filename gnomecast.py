@@ -187,6 +187,16 @@ class Gnomecast(object):
     t = threading.Thread(target=self.monitor_cast)
     t.daemon = True
     t.start()
+    if len(sys.argv) > 1:
+        if not os.path.isfile(sys.argv[1]):
+          def f():
+            dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File not found")
+            dialog.format_secondary_text("Could not find the file %s" % sys.argv[1])
+            dialog.run()
+            dialog.destroy()
+          GLib.idle_add(f)
+        else:
+          self.select_file(sys.argv[1])
     Gtk.main()
     
   def check_ffmpeg(self):
