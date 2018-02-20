@@ -660,7 +660,8 @@ class Gnomecast(object):
 
   def on_volume_changed(self, widget):
       val = widget.get_value() / 100
-      self.cast.set_volume(val)
+      if self.cast:
+          self.cast.set_volume(val)
   
   def on_subtitle_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
