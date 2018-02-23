@@ -42,7 +42,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.2.9'
+__version__ = '0.2.11'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -67,6 +67,8 @@ def throttle(seconds=2):
   return decorator
 
 
+AUDIO_EXTS = ('aac','mp3','wav')
+
 class Transcoder(object):
 
   def __init__(self, cast, fn, done_callback):
@@ -77,7 +79,7 @@ class Transcoder(object):
     output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
     container = fn.lower().split(".")[-1]
     video_codec = None
-    transcode_audio = container not in ('aac','mp3','wav')
+    transcode_audio = container not in AUDIO_EXTS
     for line in output:
       line = line.strip()
       if line.startswith('Stream') and 'Video' in line:
@@ -172,6 +174,7 @@ class Gnomecast(object):
     self.last_known_current_time = None
     self.last_time_current_time = None
     self.fn = None
+    self.last_fn_played = None
     self.transcoder = None
     self.subtitles = None
     self.duration = None
@@ -231,8 +234,8 @@ class Gnomecast(object):
       response.headers['Content-Type'] = 'text/vtt'
       return self.subtitles
     
-    @app.get('/video.mp4')
-    def video():
+    @app.get('/media/<id>.<ext>')
+    def video(id, ext):
       print(list(bottle.request.headers.items()))
       print(self.transcoder.fn)
       ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
@@ -480,22 +483,22 @@ class Gnomecast(object):
     cast = self.cast
     mc = cast.media_controller
     
-    if mc.status.player_state=='PLAYING':
-      mc.pause()
-    elif mc.status.player_state=='PAUSED':
-      mc.play()
-    elif mc.status.player_state in ('IDLE','UNKNOWN'):
+    if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != self.fn:
+      self.last_fn_played = self.fn
       cast.wait()
       mc = cast.media_controller
       kwargs = {}
       if self.subtitles:
         kwargs['subtitles'] = 'http://%s:%s/subtitles.vtt' % (self.ip, self.port)
-      mc.play_media('http://%s:%s/video.mp4' % (self.ip, self.port), 'video/mp4', **kwargs)
-      # mc.update_status()
+      ext = self.fn.split('.')[-1]
+      ext = ''.join(ch for ch in ext if ch.isalnum()).lower()
+      mc.play_media('http://%s:%s/media/%s.%s' % (self.ip, self.port, hash(self.fn), ext), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
       print(cast.status)
       print(mc.status)
-      # mc.enable_subtitle(1)
-      # mc.block_until_active()
+    elif mc.status.player_state=='PLAYING':
+      mc.pause()
+    elif mc.status.player_state=='PAUSED':
+      mc.play()
 
   def on_file_clicked(self, widget):
       dialog = Gtk.FileChooserDialog("Please choose an audio or video file...", self.win,
@@ -564,6 +567,8 @@ class Gnomecast(object):
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
+    if self.cast:
+      self.cast.media_controller.stop()
     threading.Thread(target=self.gen_thumbnail).start()
     threading.Thread(target=self.update_transcoder).start()
   
