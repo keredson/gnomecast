@@ -1,6 +1,6 @@
 ![alt text](https://raw.githubusercontent.com/keredson/gnomecast/master/screenshot.png)
 
-Gnomecast
+Gnomecast ![logo](https://github.com/keredson/gnomecast/raw/master/icons/gnomecast_16.png)
 =========
 
 This is a native Linux GUI for casting local files to Chromecast devices.  It supports:
