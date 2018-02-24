@@ -5,6 +5,7 @@ import io
 import mimetypes
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -152,7 +153,7 @@ class Transcoder(object):
     self.p.stdout.close()
     self.done = True
     self.done_callback()
-  
+      
   def destroy(self):
     self.cast.media_controller.stop()
     if self.p:
@@ -175,10 +176,24 @@ class Gnomecast(object):
     self.last_time_current_time = None
     self.fn = None
     self.last_fn_played = None
+    self.thumbnail_dir = None
     self.transcoder = None
     self.subtitles = None
     self.duration = None
     self.seeking = False
+
+  def update_thumbnails(self):
+    i = 0
+    while True:
+      files = os.listdir(self.thumbnail_dir) if self.thumbnail_dir else []
+      if files:
+        fn = os.path.join(self.thumbnail_dir, files[i % len(files)])
+        GLib.idle_add(lambda: self.thumbnail_image.set_from_file(fn))
+      else:
+        GLib.idle_add(lambda: self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf()))
+      i += 1
+      time.sleep(30)
+
 
   def run(self):
     self.build_gui()
@@ -188,6 +203,9 @@ class Gnomecast(object):
     t.daemon = True
     t.start()
     t = threading.Thread(target=self.monitor_cast)
+    t.daemon = True
+    t.start()
+    t = threading.Thread(target=self.update_thumbnails)
     t.daemon = True
     t.start()
     if len(sys.argv) > 1:
@@ -460,6 +478,7 @@ class Gnomecast(object):
       self.transcoder.destroy()
     if self.cast:
       self.cast.media_controller.stop()
+    if self.thumbnail_dir: shutil.rmtree(self.thumbnail_dir)
     Gtk.main_quit()
 
   def forward_clicked(self, widget):
@@ -582,14 +601,14 @@ class Gnomecast(object):
         
   def gen_thumbnail(self):
     container = self.fn.lower().split(".")[-1]
-    thumbnail_fn = None
+    if self.thumbnail_dir: shutil.rmtree(self.thumbnail_dir)
+    self.thumbnail_dir = tempfile.mkdtemp(prefix='gnomecast_thumbnails_')
     subtitle_ids = []
     if container in ('aac','mp3','wav'):
       cmd = ['ffmpeg', '-i', self.fn, '-f', 'ffmetadata', '-']
     else:
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
-      os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=800:-1', thumbnail_fn]
+      cmd = ['ffmpeg', '-y', '-i', self.fn, '-vf', 'fps=1/19, scale=800:-1', '-t', '120', os.path.join(self.thumbnail_dir, 'out%03d.jpg')]
+    print(' '.join(cmd))
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
@@ -600,12 +619,7 @@ class Gnomecast(object):
         id = id[:id.index('(')]
         subtitle_ids.append(id)
     print('subtitle_ids', subtitle_ids)
-    def f():
-      if thumbnail_fn:
-        self.thumbnail_image.set_from_file(thumbnail_fn)
-        os.remove(thumbnail_fn)
-      self.update_status()
-    GLib.idle_add(f)
+    GLib.idle_add(self.update_status)
     new_subtitles = []
     for subtitle_id in subtitle_ids:
       srt_fn = tempfile.mkstemp(suffix='.srt', prefix='moviecaster_')[1]
