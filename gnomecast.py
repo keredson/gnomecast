@@ -1,6 +1,7 @@
 import base64
 import codecs
 import contextlib
+import dbus
 import io
 import mimetypes
 import os
@@ -179,6 +180,10 @@ class Gnomecast(object):
     self.subtitles = None
     self.duration = None
     self.seeking = False
+    bus = dbus.SessionBus()
+    saver = bus.get_object('org.freedesktop.ScreenSaver', '/ScreenSaver')
+    self.saver_interface = dbus.Interface(saver, dbus_interface='org.freedesktop.ScreenSaver')
+    self.inhibit_screensaver_cookie = None
 
   def run(self):
     self.build_gui()
@@ -282,10 +287,14 @@ class Gnomecast(object):
       if mc.status.player_state != self.last_known_player_state:
         if mc.status.player_state=='PLAYING' and self.last_known_player_state=='BUFFERING' and seeking:
           self.seeking = False
+        if mc.status.player_state=='PLAYING':
+          self.inhibit_screensaver()
+        else:
+          self.restore_screensaver()
+        self.last_known_player_state = mc.status.player_state
         def f():
           self.update_media_button_states()
           self.update_status()
-        self.last_known_player_state = mc.status.player_state
         GLib.idle_add(f)
       elif self.transcoder and not self.transcoder.done:
         def f():
@@ -302,6 +311,17 @@ class Gnomecast(object):
     self.cast_store.append([None, "Searching local network - please wait..."])
     self.cast_combo.set_active(0)
     threading.Thread(target=self.load_casts).start()
+    
+  def inhibit_screensaver(self):
+    if self.inhibit_screensaver_cookie: return
+    self.inhibit_screensaver_cookie = self.saver_interface.Inhibit("Gnomecast", "Player is playing...")
+    print('disabled screensaver')
+
+  def restore_screensaver(self):
+    if self.inhibit_screensaver_cookie:
+      self.saver_interface.UnInhibit(self.inhibit_screensaver_cookie)
+      self.inhibit_screensaver_cookie = None
+      print('restored screensaver')
 
   def load_casts(self):
     chromecasts = pychromecast.get_chromecasts()
@@ -460,6 +480,7 @@ class Gnomecast(object):
       self.transcoder.destroy()
     if self.cast:
       self.cast.media_controller.stop()
+    self.restore_screensaver()
     Gtk.main_quit()
 
   def forward_clicked(self, widget):
