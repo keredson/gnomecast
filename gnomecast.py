@@ -42,7 +42,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.2.11'
+__version__ = '0.2.12'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -415,6 +415,7 @@ class Gnomecast(object):
     win.connect("delete-event", self.quit)
     win.connect("key_press_event", self.on_key_press)
     win.show_all()
+    win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
 
@@ -589,7 +590,7 @@ class Gnomecast(object):
     else:
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
       os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=800:-1', thumbnail_fn]
+      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
@@ -604,6 +605,7 @@ class Gnomecast(object):
       if thumbnail_fn:
         self.thumbnail_image.set_from_file(thumbnail_fn)
         os.remove(thumbnail_fn)
+        self.win.resize(1,1)
       self.update_status()
     GLib.idle_add(f)
     new_subtitles = []
