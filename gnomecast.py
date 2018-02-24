@@ -172,6 +172,7 @@ class Gnomecast(object):
     self.cast = None
     self.last_known_player_state = None
     self.last_known_current_time = None
+    self.last_known_volume_level = 0
     self.last_time_current_time = None
     self.fn = None
     self.last_fn_played = None
@@ -272,7 +273,11 @@ class Gnomecast(object):
     if self.transcoder and not self.transcoder.done:
       notes.append('Converting: %i%%' % (self.transcoder.progress_seconds*100 // self.duration))
     self.file_button.set_label('  -  '.join(notes))
-    
+
+  def get_volume_level(self):
+    volume_level = 100 * round(self.cast.status.volume_level, 2)
+    return volume_level
+  
   def monitor_cast(self):
     while True:
       time.sleep(1)
@@ -296,7 +301,10 @@ class Gnomecast(object):
         self.last_known_current_time = mc.status.current_time
         self.last_time_current_time = time.time()
       if not seeking and mc.status.player_state=='PLAYING':
-        GLib.idle_add(lambda: self.scrubber_adj.set_value(mc.status.current_time + time.time() - self.last_time_current_time))
+        GLib.idle_add(lambda: self.scrubber_adj.set_value(mc.status.current_time + time.time() - self.last_time_current_time)) 
+      if mc.status.player_state=='PLAYING' and self.last_known_volume_level != self.get_volume_level():
+        GLib.idle_add(lambda: self.volume_adj.set_value(self.get_volume_level()))
+        
 
   def init_casts(self, widget=None):
     self.cast_store.clear()
@@ -420,7 +428,16 @@ class Gnomecast(object):
     self.volume_button.set_sensitive(False)
     hbox.pack_start(self.volume_button, True, False, 0)
     vbox.pack_start(hbox, False, False, 0)
-    
+    self.volume_adj = Gtk.Adjustment (self.last_known_volume_level, 0, 100)
+    self.volume = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.volume_adj)
+    self.volume.set_range(0, 100)
+    self.volume.set_increments(1, 10)
+    self.volume.set_digits(0)
+    self.volume.set_size_request(160, 35)
+    self.volume.connect("value-changed", self.on_volume_changed)
+    hbox.pack_start(self.volume, True, False, 0)
+    vbox.pack_start(hbox, False, False, 0)
+
     cast_combo.connect("changed", self.on_cast_combo_changed)
 
     win.connect("delete-event", self.quit)
@@ -669,6 +686,11 @@ class Gnomecast(object):
       else:
           entry = combo.get_child()
 
+  def on_volume_changed(self, widget):
+      val = widget.get_value() / 100
+      if self.cast:
+          self.cast.set_volume(val)
+  
   def on_subtitle_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
       if tree_iter is not None:
