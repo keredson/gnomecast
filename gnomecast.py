@@ -43,7 +43,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.2.11'
+__version__ = '0.2.13'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -180,6 +180,7 @@ class Gnomecast(object):
     self.subtitles = None
     self.duration = None
     self.seeking = False
+    self.last_known_volume_level = None
     bus = dbus.SessionBus()
     saver = bus.get_object('org.freedesktop.ScreenSaver', '/ScreenSaver')
     self.saver_interface = dbus.Interface(saver, dbus_interface='org.freedesktop.ScreenSaver')
@@ -339,6 +340,7 @@ class Gnomecast(object):
   def update_media_button_states(self):
     mc = self.cast.media_controller if self.cast else None
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
+    self.volume_button.set_sensitive(bool(self.cast))
     self.stop_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
     self.rewind_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
     self.forward_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
@@ -415,19 +417,28 @@ class Gnomecast(object):
     self.rewind_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_MEDIA_REWIND))
     self.rewind_button.connect("clicked", self.rewind_clicked)
     self.rewind_button.set_sensitive(False)
+    self.rewind_button.set_relief(Gtk.ReliefStyle.NONE)
     hbox.pack_start(self.rewind_button, True, False, 0)
     self.play_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_MEDIA_PLAY))
     self.play_button.connect("clicked", self.play_clicked)
     self.play_button.set_sensitive(False)
+    self.play_button.set_relief(Gtk.ReliefStyle.NONE)
     hbox.pack_start(self.play_button, True, False, 0)
     self.forward_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_MEDIA_FORWARD))
     self.forward_button.connect("clicked", self.forward_clicked)
     self.forward_button.set_sensitive(False)
+    self.forward_button.set_relief(Gtk.ReliefStyle.NONE)
     hbox.pack_start(self.forward_button, True, False, 0)
     self.stop_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_MEDIA_STOP))
     self.stop_button.connect("clicked", self.stop_clicked)
     self.stop_button.set_sensitive(False)
+    self.stop_button.set_relief(Gtk.ReliefStyle.NONE)
     hbox.pack_start(self.stop_button, True, False, 0)
+    self.volume_button = Gtk.VolumeButton()
+    self.volume_button.set_value(1)
+    self.volume_button.connect("value-changed", self.volume_moved)
+    self.volume_button.set_sensitive(False)
+    hbox.pack_start(self.volume_button, True, False, 0)
     vbox.pack_start(hbox, False, False, 0)
     
     cast_combo.connect("changed", self.on_cast_combo_changed)
@@ -435,12 +446,20 @@ class Gnomecast(object):
     win.connect("delete-event", self.quit)
     win.connect("key_press_event", self.on_key_press)
     win.show_all()
+    win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
     self.seeking = True
+
+  @throttle(seconds=1)
+  def volume_moved(self, button, volume):
+    if self.last_known_volume_level != volume:
+      self.last_known_volume_level = volume
+      self.cast.set_volume(volume)
+      print('setting volume', volume)
 
   @throttle()
   def scrubber_moved(self, scale, scroll_type, seconds):
@@ -610,7 +629,7 @@ class Gnomecast(object):
     else:
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
       os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=800:-1', thumbnail_fn]
+      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
@@ -625,6 +644,7 @@ class Gnomecast(object):
       if thumbnail_fn:
         self.thumbnail_image.set_from_file(thumbnail_fn)
         os.remove(thumbnail_fn)
+        self.win.resize(1,1)
       self.update_status()
     GLib.idle_add(f)
     new_subtitles = []
@@ -661,6 +681,9 @@ class Gnomecast(object):
           cast, name = model[tree_iter][:2]
           print(cast)
           self.cast = cast
+          if cast:
+            self.last_known_volume_level = cast.media_controller.status.volume_level
+            self.volume_button.set_value(cast.media_controller.status.volume_level)
           self.last_known_player_state = None
           self.update_media_button_states()
           threading.Thread(target=self.update_transcoder).start()
