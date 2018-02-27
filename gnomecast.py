@@ -163,15 +163,14 @@ class Transcoder(object):
 
 def find_screensaver_dbus_iface(bus):
   """ Searches the DBus names for Screensaver and returns correct Interface"""
-  for path, name in [('org.freedesktop.ScreenSaver', '/ScreenSaver'),
-                     ('org.mate.ScreenSaver', '/ScreenSaver')]:
+  for path, name in [('org.freedesktop.ScreenSaver', '/ScreenSaver'), ('org.mate.ScreenSaver', '/ScreenSaver')]:
     try:
       saver = bus.get_object(path, name)
       return dbus.Interface(saver, dbus_interface=path)
     except dbus.exceptions.DBusException:
       # wrong path, try next one
-      continue
-    return None  # None if no alternative found
+      pass
+  return None
 
 class Gnomecast(object):
 
@@ -194,7 +193,7 @@ class Gnomecast(object):
     self.last_known_volume_level = None
     bus = dbus.SessionBus()
     self.saver_interface = find_screensaver_dbus_iface(bus)
-    self.inhibit_screensaver_cookie = None if self.saver_interface else True
+    self.inhibit_screensaver_cookie = None
 
   def run(self):
     self.build_gui()
@@ -325,12 +324,12 @@ class Gnomecast(object):
     threading.Thread(target=self.load_casts).start()
     
   def inhibit_screensaver(self):
-    if self.inhibit_screensaver_cookie: return
+    if not self.saver_interface or self.inhibit_screensaver_cookie: return
     self.inhibit_screensaver_cookie = self.saver_interface.Inhibit("Gnomecast", "Player is playing...")
     print('disabled screensaver')
 
   def restore_screensaver(self):
-    if self.inhibit_screensaver_cookie:
+    if self.saver_interface and self.inhibit_screensaver_cookie:
       self.saver_interface.UnInhibit(self.inhibit_screensaver_cookie)
       self.inhibit_screensaver_cookie = None
       print('restored screensaver')
