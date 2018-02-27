@@ -72,35 +72,41 @@ AUDIO_EXTS = ('aac','mp3','wav')
 
 class Transcoder(object):
 
-  def __init__(self, cast, fn, done_callback):
+  def __init__(self, cast, fn, done_callback, prev_transcoder):
     self.cast = cast
     self.source_fn = fn
     self.p = None
-
-    output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
-    container = fn.lower().split(".")[-1]
-    video_codec = None
-    transcode_audio = container not in AUDIO_EXTS
-    for line in output:
-      line = line.strip()
-      if line.startswith('Stream') and 'Video' in line:
-        video_codec = line.split()[3]
-      elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line):
-        transcode_audio = False
-
-    print('Transcoder', fn, container, video_codec, transcode_audio)
     
-    self.transcode_video = video_codec and video_codec!='h264'
-    self.transcode_audio = transcode_audio
-    self.transcode_container = container not in ('mp4','aac','mp3','wav')
-    self.transcode = self.transcode_container or self.transcode_video or self.transcode_audio
+    if prev_transcoder and prev_transcoder.source_fn == self.source_fn:
+      self.transcode_video = prev_transcoder.transcode_video
+      self.transcode_audio = prev_transcoder.transcode_audio
+      self.transcode = False
+      self.trans_fn = prev_transcoder.trans_fn
+    else:
+      output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
+      container = fn.lower().split(".")[-1]
+      video_codec = None
+      transcode_audio = container not in AUDIO_EXTS
+      for line in output:
+        line = line.strip()
+        if line.startswith('Stream') and 'Video' in line and not video_codec:
+          video_codec = line.split()[3]
+        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line):
+          transcode_audio = False
+      print('Transcoder', fn, container, video_codec, transcode_audio)
+      transcode_container = container not in ('mp4','aac','mp3','wav')
+      self.transcode_video = video_codec and video_codec!='h264'
+      self.transcode_audio = transcode_audio
+      self.transcode = transcode_container or self.transcode_video or self.transcode_audio
+      self.trans_fn = None
+
     self.progress_bytes = 0
     self.progress_seconds = 0
     self.done_callback = done_callback
     print (self.transcode, self.transcode_video, self.transcode_audio)
     if self.transcode:
       self.done = False
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='movie_caster_')[1]
+      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_')[1]
       os.remove(self.trans_fn)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a', 'mp3' if self.transcode_audio else 'copy', self.trans_fn] # '-movflags', 'faststart'
@@ -112,7 +118,6 @@ class Transcoder(object):
       t.daemon = True
       t.start()
     else:
-      self.trans_fn = None
       self.done = True
       self.done_callback()
   
@@ -623,11 +628,12 @@ class Gnomecast(object):
     threading.Thread(target=self.update_transcoder).start()
   
   def update_transcoder(self):
-    if self.transcoder: 
-      self.transcoder.destroy()
-      self.transcoder = None
     if self.cast and self.fn:
-      self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status))
+      self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status), self.transcoder)
+    else:
+      if self.transcoder:
+        self.transcoder.destroy()
+        self.transcoder = None
     GLib.idle_add(self.update_media_button_states)
         
   def gen_thumbnail(self):
@@ -637,7 +643,7 @@ class Gnomecast(object):
     if container in ('aac','mp3','wav'):
       cmd = ['ffmpeg', '-i', self.fn, '-f', 'ffmetadata', '-']
     else:
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='moviecaster_thumbnail_')[1]
+      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
       os.remove(thumbnail_fn)
       cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -659,7 +665,7 @@ class Gnomecast(object):
     GLib.idle_add(f)
     new_subtitles = []
     for subtitle_id in subtitle_ids:
-      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='moviecaster_')[1]
+      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
       output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
       with open(srt_fn) as f:
         caps = f.read()
