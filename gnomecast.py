@@ -171,7 +171,7 @@ def find_screensaver_dbus_iface(bus):
     except dbus.exceptions.DBusException:
       # wrong path, try next one
       continue
-    # The exception bubbles up if no alternative found
+    return None  # None if no alternative found
 
 class Gnomecast(object):
 
@@ -194,7 +194,7 @@ class Gnomecast(object):
     self.last_known_volume_level = None
     bus = dbus.SessionBus()
     self.saver_interface = find_screensaver_dbus_iface(bus)
-    self.inhibit_screensaver_cookie = None
+    self.inhibit_screensaver_cookie = None if self.saver_interface else True
 
   def run(self):
     self.build_gui()
