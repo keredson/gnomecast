@@ -249,6 +249,7 @@ class Gnomecast(object):
       offset, end = ranges[0]
       self.transcoder.wait_for_byte(offset)
       response = bottle.static_file(self.transcoder.fn, root='/')
+      del response.headers['Last-Modified']
       response.headers['Access-Control-Allow-Origin'] = '*'
       response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD'
       response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
