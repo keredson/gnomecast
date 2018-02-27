@@ -1,3 +1,4 @@
+import argparse
 import base64
 import codecs
 import contextlib
@@ -22,7 +23,7 @@ try:
 except Exception as e:
   print(e)
   DEPS_MET = False
-  
+
 try:
   import gi
   gi.require_version('Gtk', '3.0')
@@ -48,7 +49,6 @@ __version__ = '0.2.15'
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
 
-
 def throttle(seconds=2):
   def decorator(f):
     timer = None
@@ -66,7 +66,6 @@ def throttle(seconds=2):
         timer.start()
     return wrapper
   return decorator
-
 
 AUDIO_EXTS = ('aac','mp3','wav')
 
@@ -120,11 +119,11 @@ class Transcoder(object):
     else:
       self.done = True
       self.done_callback()
-  
+
   @property
   def fn(self):
     return self.trans_fn if self.transcode else self.source_fn
-    
+
   def wait_for_byte(self, offset, buffer=128*1024*1024):
     if self.done: return
     if self.source_fn.lower().split(".")[-1]=='mp4':
@@ -136,7 +135,7 @@ class Transcoder(object):
         print('waiting for transcode to finish')
         time.sleep(2)
     print('done waiting')
-  
+
   def monitor(self):
     line = ''
     r = re.compile(r'=\s+')
@@ -158,7 +157,7 @@ class Transcoder(object):
     self.p.stdout.close()
     self.done = True
     self.done_callback()
-  
+
   def destroy(self):
     self.cast.media_controller.stop()
     if self.p:
@@ -202,7 +201,10 @@ class Gnomecast(object):
 
   def run(self):
     self.build_gui()
-    self.init_casts()
+    if not args.device:
+      self.init_casts()
+    self.run_cli()
+    self.update_status()
     threading.Thread(target=self.check_ffmpeg).start()
     t = threading.Thread(target=self.start_server)
     t.daemon = True
@@ -210,18 +212,27 @@ class Gnomecast(object):
     t = threading.Thread(target=self.monitor_cast)
     t.daemon = True
     t.start()
-    if len(sys.argv) > 1:
-        if not os.path.isfile(sys.argv[1]):
-          def f():
-            dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File not found")
-            dialog.format_secondary_text("Could not find the file %s" % sys.argv[1])
-            dialog.run()
-            dialog.destroy()
-          GLib.idle_add(f)
-        else:
-          self.select_file(sys.argv[1])
     Gtk.main()
-    
+
+  def run_cli(self):
+    if args.media:
+      if os.path.isfile(args.media[0]):
+        self.fn = args.media[0]
+        self.select_file(self.fn)
+        print("Found media file: {}".format(self.fn))
+      else:
+        print("Media file {} could not be found!".format(args.media[0]))
+    if args.subtitles:
+      if os.path.isfile(args.subtitles[0]):
+        self.subtitles = args.subtitles[0]
+        self.select_subtitles_file(self.subtitles)
+        print("Found subtitle file: {}".format(self.subtitles))
+      else:
+        print("Subtitle file {} could not be found!".format(args.subtitles[0]))
+    if args.device:
+      print("Autoconnect device specified...")
+      self.load_casts(args.device[0])
+
   def check_ffmpeg(self):
     time.sleep(1)
     ffmpeg_available = True
@@ -240,7 +251,7 @@ class Gnomecast(object):
         # TODO: there's a weird pause here closing the dialog.  why?
         sys.exit(1)
       GLib.idle_add(f)
-    
+
   def start_server(self):
     app = self.app
 
@@ -253,7 +264,7 @@ class Gnomecast(object):
       response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
       response.headers['Content-Type'] = 'text/vtt'
       return self.subtitles
-    
+
     @app.get('/media/<id>.<ext>')
     def video(id, ext):
       print(list(bottle.request.headers.items()))
@@ -292,7 +303,7 @@ class Gnomecast(object):
     if self.transcoder and not self.transcoder.done:
       notes.append('Converting: %i%%' % (self.transcoder.progress_seconds*100 // self.duration))
     self.file_button.set_label('  -  '.join(notes))
-    
+
   def monitor_cast(self):
     while True:
       time.sleep(1)
@@ -339,19 +350,24 @@ class Gnomecast(object):
       self.inhibit_screensaver_cookie = None
       print('restored screensaver')
 
-  def load_casts(self):
+  def load_casts(self, device_request=False):
     chromecasts = pychromecast.get_chromecasts()
     def f():
       self.cast_store.clear()
       self.cast_store.append([None, "Select a cast device..."])
+      self.cast_combo.set_active(0)
+      cc_index = 0
       for cc in chromecasts:
+        cc_index += 1
         friendly_name = cc.device.friendly_name
         if cc.cast_type!='cast':
           friendly_name = '%s (%s)' % (friendly_name, cc.cast_type)
         self.cast_store.append([cc, friendly_name])
-      self.cast_combo.set_active(0)
+        if device_request and device_request == friendly_name:
+            print("Found requested device!")
+            self.cast_combo.set_active(cc_index)
     GLib.idle_add(f)
-  
+
   def update_media_button_states(self):
     mc = self.cast.media_controller if self.cast else None
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
@@ -366,7 +382,6 @@ class Gnomecast(object):
     else:
       self.scrubber.set_sensitive(False)
 
-
   def build_gui(self):
     self.win = win = Gtk.Window(title='Gnomecast v%s' % __version__)
     win.set_border_width(0)
@@ -375,7 +390,7 @@ class Gnomecast(object):
 
     vbox_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-    
+
     self.thumbnail_image = Gtk.Image()
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     vbox_outer.pack_start(self.thumbnail_image, True, False, 0)
@@ -413,7 +428,7 @@ class Gnomecast(object):
     self.subtitle_combo.add_attribute(renderer_text, "text", 0)
     self.subtitle_combo.set_active(0)
     vbox.pack_start(self.subtitle_combo, False, False, 0)
-    
+
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
     self.scrubber.set_digits(0)
@@ -455,7 +470,7 @@ class Gnomecast(object):
     self.volume_button.set_sensitive(False)
     hbox.pack_start(self.volume_button, True, False, 0)
     vbox.pack_start(hbox, False, False, 0)
-    
+
     cast_combo.connect("changed", self.on_cast_combo_changed)
 
     win.connect("delete-event", self.quit)
@@ -493,12 +508,11 @@ class Gnomecast(object):
       return '%im %is' % (minutes, seconds)
     else:
       return '%is' % (seconds)
-    
 
   def stop_clicked(self, widget):
     if not self.cast: return
     self.cast.media_controller.stop()
-    
+
   def get_logo_pixbuf(self, width=200, color=None):
     svg = LOGO_SVG
     if color:
@@ -508,7 +522,6 @@ class Gnomecast(object):
     pixbuf = GdkPixbuf.Pixbuf.new_from_stream(f, None)
     return pixbuf
 
-  
   def quit(self, a=0, b=0):
     if self.transcoder:
       self.transcoder.destroy()
@@ -519,10 +532,10 @@ class Gnomecast(object):
 
   def forward_clicked(self, widget):
     self.seek_delta(30)
-    
+
   def rewind_clicked(self, widget):
     self.seek_delta(-10)
-    
+
   def seek_delta(self, delta):
     seconds = self.cast.media_controller.status.current_time + time.time() - self.last_time_current_time + delta
     self.last_time_current_time = time.time()
@@ -530,14 +543,14 @@ class Gnomecast(object):
     self.scrubber_adj.set_value(seconds)
     self.seeking = True
     self.cast.media_controller.seek(seconds)
-    
+
   def play_clicked(self, widget):
     if not self.cast:
       print('no cast selected')
       return
     cast = self.cast
     mc = cast.media_controller
-    
+
     if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != self.fn:
       self.last_fn_played = self.fn
       cast.wait()
@@ -554,7 +567,7 @@ class Gnomecast(object):
       mc.pause()
     elif mc.status.player_state=='PAUSED':
       mc.play()
-
+      
   def on_file_clicked(self, widget):
       dialog = Gtk.FileChooserDialog("Please choose an audio or video file...", self.win,
           Gtk.FileChooserAction.OPEN,
@@ -566,7 +579,7 @@ class Gnomecast(object):
       filter_py.add_mime_type("video/*")
       filter_py.add_mime_type("audio/*")
       dialog.add_filter(filter_py)
-        
+
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
           print("Open clicked")
@@ -576,7 +589,7 @@ class Gnomecast(object):
           print("Cancel clicked")
 
       dialog.destroy()
-      
+
   def on_new_subtitle_clicked(self):
       dialog = Gtk.FileChooserDialog("Please choose a subtitle file...", self.win,
           Gtk.FileChooserAction.OPEN,
@@ -588,7 +601,7 @@ class Gnomecast(object):
       filter_py.add_pattern("*.srt")
       filter_py.add_pattern("*.vtt")
       dialog.add_filter(filter_py)
-        
+
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
           print("Open clicked")
@@ -599,7 +612,7 @@ class Gnomecast(object):
           self.subtitle_combo.set_active(0)
 
       dialog.destroy()
-      
+
   def select_subtitles_file(self, fn):
     ext = fn.split('.')[-1]
     display_name = os.path.basename(fn)
@@ -617,7 +630,7 @@ class Gnomecast(object):
     pos = len(self.subtitle_store)
     self.subtitle_store.append([display_name, pos-2, self.subtitles])
     self.subtitle_combo.set_active(pos)
-    
+
   def select_file(self, fn):
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
@@ -626,7 +639,7 @@ class Gnomecast(object):
       self.cast.media_controller.stop()
     threading.Thread(target=self.gen_thumbnail).start()
     threading.Thread(target=self.update_transcoder).start()
-  
+
   def update_transcoder(self):
     if self.cast and self.fn:
       self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status), self.transcoder)
@@ -635,7 +648,7 @@ class Gnomecast(object):
         self.transcoder.destroy()
         self.transcoder = None
     GLib.idle_add(self.update_media_button_states)
-        
+
   def gen_thumbnail(self):
     container = self.fn.lower().split(".")[-1]
     thumbnail_fn = None
@@ -721,8 +734,7 @@ class Gnomecast(object):
 def parse_ffmpeg_time(time_s):
   hours, minutes, seconds = (float(s) for s in time_s.split(':'))
   return hours*60*60 + minutes*60 + seconds
-  
-  
+
 # this is embedded here because i gave up trying to get pip to handle a non-python file
 LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
@@ -832,11 +844,19 @@ LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   </g>
 </svg>'''
 
-def main():
+def main(args):
   caster = Gnomecast()
   caster.run()
+  
 
 if DEPS_MET and __name__=='__main__':
-  main()
-  
+  parser = argparse.ArgumentParser(description='gnomecast CLI')
+  parser.add_argument('-m', '--media', nargs=1, metavar='', help='provide a media file. eg, /home/foo/video.mp4')
+  parser.add_argument('-s', '--subtitles', nargs=1, metavar='', help='provide a subtitle file. eg, /home/foo/subtitle.srt')
+  parser.add_argument('-d', '--device', nargs=1, metavar='', help='connect to device using the device friendlyName. eg, "Bedroom TV"')
+  # parser.add_argument('-p', '--play', action='store_true', help='If media and device are provided, attempt to play.')
+  args = parser.parse_args()
+
+  main(args)
+
 
