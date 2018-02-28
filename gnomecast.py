@@ -200,9 +200,9 @@ class Gnomecast(object):
     self.saver_interface = find_screensaver_dbus_iface(bus)
     self.inhibit_screensaver_cookie = None
 
-  def run(self):
+  def run(self, fn=None, device=None, subtitles=None):
     self.build_gui()
-    self.init_casts()
+    self.init_casts(device=device)
     threading.Thread(target=self.check_ffmpeg).start()
     t = threading.Thread(target=self.start_server)
     t.daemon = True
@@ -210,16 +210,26 @@ class Gnomecast(object):
     t = threading.Thread(target=self.monitor_cast)
     t.daemon = True
     t.start()
-    if len(sys.argv) > 1:
-        if not os.path.isfile(sys.argv[1]):
-          def f():
-            dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File not found")
-            dialog.format_secondary_text("Could not find the file %s" % sys.argv[1])
-            dialog.run()
-            dialog.destroy()
-          GLib.idle_add(f)
-        else:
-          self.select_file(sys.argv[1])
+    if fn:
+      if os.path.isfile(fn):
+        self.select_file(fn)
+      else:
+        def f():
+          dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
+          dialog.format_secondary_text("Could not find media file: %s" % fn)
+          dialog.run()
+          dialog.destroy()
+        GLib.idle_add(f)
+    if subtitles:
+      if os.path.isfile(subtitles):
+        self.select_subtitles_file(subtitles)
+      else:
+        def f():
+          dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
+          dialog.format_secondary_text("Could not find subtitles file: %s" % fn)
+          dialog.run()
+          dialog.destroy()
+        GLib.idle_add(f)
     Gtk.main()
     
   def check_ffmpeg(self):
@@ -263,7 +273,8 @@ class Gnomecast(object):
       offset, end = ranges[0]
       self.transcoder.wait_for_byte(offset)
       response = bottle.static_file(self.transcoder.fn, root='/')
-      del response.headers['Last-Modified']
+      if 'Last-Modified' in response.headers:
+        del response.headers['Last-Modified']
       response.headers['Access-Control-Allow-Origin'] = '*'
       response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD'
       response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -322,11 +333,11 @@ class Gnomecast(object):
       if not seeking and mc.status.player_state=='PLAYING':
         GLib.idle_add(lambda: self.scrubber_adj.set_value(mc.status.current_time + time.time() - self.last_time_current_time))
 
-  def init_casts(self, widget=None):
+  def init_casts(self, widget=None, device=None):
     self.cast_store.clear()
     self.cast_store.append([None, "Searching local network - please wait..."])
     self.cast_combo.set_active(0)
-    threading.Thread(target=self.load_casts).start()
+    threading.Thread(target=self.load_casts, kwargs={'device':device}).start()
     
   def inhibit_screensaver(self):
     if not self.saver_interface or self.inhibit_screensaver_cookie: return
@@ -339,7 +350,7 @@ class Gnomecast(object):
       self.inhibit_screensaver_cookie = None
       print('restored screensaver')
 
-  def load_casts(self):
+  def load_casts(self, device=None):
     chromecasts = pychromecast.get_chromecasts()
     def f():
       self.cast_store.clear()
@@ -349,7 +360,20 @@ class Gnomecast(object):
         if cc.cast_type!='cast':
           friendly_name = '%s (%s)' % (friendly_name, cc.cast_type)
         self.cast_store.append([cc, friendly_name])
-      self.cast_combo.set_active(0)
+      if device:
+        found = False
+        for i, cc in enumerate(chromecasts):
+          if device == cc.device.friendly_name:
+            self.cast_combo.set_active(i+1)
+            found = True
+        if not found:
+          self.cast_combo.set_active(0)
+          dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "Chromecast Not Found")
+          dialog.format_secondary_text("The Chromecast '%s' wasn't found." % device)
+          dialog.run()
+          dialog.destroy()
+      else:
+        self.cast_combo.set_active(0)
     GLib.idle_add(f)
   
   def update_media_button_states(self):
@@ -689,6 +713,15 @@ class Gnomecast(object):
       self.quit()
       return True
     return False
+    
+  def select_cast(self, cast):
+    self.cast = cast
+    if cast:
+      self.last_known_volume_level = cast.media_controller.status.volume_level
+      self.volume_button.set_value(cast.media_controller.status.volume_level)
+    self.last_known_player_state = None
+    self.update_media_button_states()
+    threading.Thread(target=self.update_transcoder).start()
 
   def on_cast_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
@@ -696,13 +729,7 @@ class Gnomecast(object):
           model = combo.get_model()
           cast, name = model[tree_iter][:2]
           print(cast)
-          self.cast = cast
-          if cast:
-            self.last_known_volume_level = cast.media_controller.status.volume_level
-            self.volume_button.set_value(cast.media_controller.status.volume_level)
-          self.last_known_player_state = None
-          self.update_media_button_states()
-          threading.Thread(target=self.update_transcoder).start()
+          self.select_cast(cast)
       else:
           entry = combo.get_child()
 
@@ -832,9 +859,35 @@ LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   </g>
 </svg>'''
 
+def arg_parse(args, kw_synonyms, f, usage):
+  kw = None
+  f_args = []
+  f_kwargs = {}
+  for arg in args:
+    if arg.startswith('-'):
+      arg = arg.lstrip('-')
+      kw = kw_synonyms.get(arg, arg)
+    else:
+      if kw:
+        f_kwargs[kw] = arg
+      else:
+        f_args.append(arg)
+      kw = None
+  try:
+    f(*f_args, **f_kwargs)
+  except TypeError as e:
+    msg = str(e).split('()',1)[1].strip()
+    print('ERROR:', msg)
+    print(usage)
+    sys.exit(1)
+
+USAGE = '''
+python gnomecast.py [<media_filename>] [-d|--device <chromecast_name>] [-s|--subtitles <subtitles_filename>]
+'''.strip()
+
 def main():
   caster = Gnomecast()
-  caster.run()
+  arg_parse(sys.argv[1:], {'s':'subtitles', 'd':'device'}, caster.run, USAGE)
 
 if DEPS_MET and __name__=='__main__':
   main()
