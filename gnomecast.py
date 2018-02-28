@@ -199,6 +199,7 @@ class Gnomecast(object):
     bus = dbus.SessionBus()
     self.saver_interface = find_screensaver_dbus_iface(bus)
     self.inhibit_screensaver_cookie = None
+    self.autoplay = False
 
   def run(self, fn=None, device=None, subtitles=None):
     self.build_gui()
@@ -211,25 +212,11 @@ class Gnomecast(object):
     t.daemon = True
     t.start()
     if fn:
-      if os.path.isfile(fn):
-        self.select_file(fn)
-      else:
-        def f():
-          dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
-          dialog.format_secondary_text("Could not find media file: %s" % fn)
-          dialog.run()
-          dialog.destroy()
-        GLib.idle_add(f)
+      self.select_file(fn)
     if subtitles:
-      if os.path.isfile(subtitles):
-        self.select_subtitles_file(subtitles)
-      else:
-        def f():
-          dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
-          dialog.format_secondary_text("Could not find subtitles file: %s" % fn)
-          dialog.run()
-          dialog.destroy()
-        GLib.idle_add(f)
+      self.select_subtitles_file(subtitles)
+    if fn and subtitles:
+      self.autoplay = True
     Gtk.main()
     
   def check_ffmpeg(self):
@@ -267,7 +254,7 @@ class Gnomecast(object):
     @app.get('/media/<id>.<ext>')
     def video(id, ext):
       print(list(bottle.request.headers.items()))
-      print(self.transcoder.fn)
+      print('self.transcoder.fn', self.transcoder.fn)
       ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
       print('ranges', ranges)
       offset, end = ranges[0]
@@ -625,6 +612,15 @@ class Gnomecast(object):
       dialog.destroy()
       
   def select_subtitles_file(self, fn):
+    if not os.path.isfile(fn):
+      def f():
+        dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
+        dialog.format_secondary_text("Could not find subtitles file: %s" % fn)
+        dialog.run()
+        dialog.destroy()
+      GLib.idle_add(f)
+      return
+    fn = os.path.abspath(fn)
     ext = fn.split('.')[-1]
     display_name = os.path.basename(fn)
     if ext=='vtt':
@@ -643,6 +639,15 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(pos)
     
   def select_file(self, fn):
+    if not os.path.isfile(fn):
+      def f():
+        dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
+        dialog.format_secondary_text("Could not find media file: %s" % fn)
+        dialog.run()
+        dialog.destroy()
+      GLib.idle_add(f)
+      return
+    fn = os.path.abspath(fn)
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
@@ -654,6 +659,9 @@ class Gnomecast(object):
   def update_transcoder(self):
     if self.cast and self.fn:
       self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status), self.transcoder)
+      if self.autoplay:
+        self.autoplay = False
+        self.play_clicked(None)
     else:
       if self.transcoder:
         self.transcoder.destroy()
@@ -865,6 +873,8 @@ def arg_parse(args, kw_synonyms, f, usage):
   f_kwargs = {}
   for arg in args:
     if arg.startswith('-'):
+      if kw:
+        f_kwargs[kw] = True
       arg = arg.lstrip('-')
       kw = kw_synonyms.get(arg, arg)
     else:
@@ -873,6 +883,8 @@ def arg_parse(args, kw_synonyms, f, usage):
       else:
         f_args.append(arg)
       kw = None
+  if kw:
+    f_kwargs[kw] = True
   try:
     f(*f_args, **f_kwargs)
   except TypeError as e:
