@@ -1,7 +1,6 @@
 import base64
 import codecs
 import contextlib
-import dbus
 import io
 import mimetypes
 import os
@@ -22,6 +21,14 @@ try:
 except Exception as e:
   print(e)
   DEPS_MET = False
+
+DBUS_AVAILABLE = False
+try:
+  import dbus
+  DBUS_AVAILABLE = True
+except Exception as e:
+  print(e)
+
   
 try:
   import gi
@@ -43,7 +50,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.2.16'
+__version__ = '0.2.17'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -168,13 +175,14 @@ class Transcoder(object):
 
 def find_screensaver_dbus_iface(bus):
   """ Searches the DBus names for Screensaver and returns correct Interface"""
+  if not DBUS_AVAILABLE: return None
   for path, name in [('org.freedesktop.ScreenSaver', '/ScreenSaver'), ('org.mate.ScreenSaver', '/ScreenSaver')]:
     try:
       saver = bus.get_object(path, name)
       return dbus.Interface(saver, dbus_interface=path)
-    except dbus.exceptions.DBusException:
+    except dbus.exceptions.DBusException as e:
       # wrong path, try next one
-      pass
+      print(e)
   return None
 
 class Gnomecast(object):
@@ -196,7 +204,7 @@ class Gnomecast(object):
     self.duration = None
     self.seeking = False
     self.last_known_volume_level = None
-    bus = dbus.SessionBus()
+    bus = dbus.SessionBus() if DBUS_AVAILABLE else None
     self.saver_interface = find_screensaver_dbus_iface(bus)
     self.inhibit_screensaver_cookie = None
     self.autoplay = False
@@ -278,8 +286,9 @@ class Gnomecast(object):
       self.file_button.set_label("Choose an audio or video file...")
       return
     fn = os.path.basename(self.fn)
-    if len(fn) > 60:
-      fn = fn[:50] + '...' + fn[-10:]
+    MAX_LEN = 45
+    if len(fn) > MAX_LEN:
+      fn = fn[:MAX_LEN-10] + '...' + fn[-10:]
     notes = [fn]
     if self.duration is not None:
       notes.append(self.humanize_seconds(self.duration))
