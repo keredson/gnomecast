@@ -3,11 +3,11 @@
 }
 
 .logo {
-  background-image: url(https://raw.githubusercontent.com/keredson/gnomecast/master/icons/gnomecast_48.png);
+  background-image: url(icons/gnomecast_48.png);
 }
 
 .progressBar {
-  background-color: rgb(238, 255, 65);
+  background-color: rgb(238, 255, 165);
 }
 
 .splash {
