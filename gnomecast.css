@@ -1,0 +1,20 @@
+.background {
+  background: center no-repeat url(background.png);
+}
+
+.logo {
+  background-image: url(https://github.com/keredson/gnomecast/raw/master/icons/gnomecast_48.png);
+}
+
+.progressBar {
+  background-color: rgb(238, 255, 65);
+}
+
+.splash {
+  background-image: url(splash.png);
+}
+
+.watermark {
+  background-image: url(watermark.png);
+  background-size: 57px 57px;
+}
