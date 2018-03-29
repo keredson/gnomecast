@@ -9,6 +9,7 @@ This is a native Linux GUI for casting local files to Chromecast devices.  It su
 - Realtime transcoding (only when needed)
 - Subtitles (embedded and external SRT files)
 - Fast scrubbing (waiting 20s for buffering to skip 30s ahead is wrong!)
+- 4K videos on the Chromecast Ultra!
 
 Install
 -------
@@ -39,17 +40,7 @@ If you ran `pip3` without `sudo` when installing, and `$ gnomecast` doesn't work
 $ python3 -m gnomecast
 ```
 
-If you see:
-```python
-AttributeError: module 'html5lib.treebuilders' has no attribute '_base'
-```
-
-This is a known bug in `html5lib` (used by `pycaptions`).  Run this to fix it:
-```
-$ pip3 install --upgrade html5lib==1.0b8
-```
-
-*Please report bugs!*
+*Please report bugs, including video files that don't work for you!*
 
 
 Thanks To...
