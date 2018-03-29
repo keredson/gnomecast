@@ -12,13 +12,21 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 DEPS_MET = True
 try:
   import pychromecast
   import bottle
+  import html5lib.treebuilders
+  
+  # hack fixing pycaption needing an old version of html5lib
+  if not hasattr(html5lib.treebuilders, '_base'):
+    html5lib.treebuilders._base = html5lib.treebuilders.base
+
   import pycaption
 except Exception as e:
+  traceback.print_exc()
   print(e)
   DEPS_MET = False
 
@@ -50,7 +58,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.2.17'
+__version__ = '0.3.0'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -102,7 +110,7 @@ class Transcoder(object):
           transcode_audio = False
       print('Transcoder', fn, container, video_codec, transcode_audio)
       transcode_container = container not in ('mp4','aac','mp3','wav')
-      self.transcode_video = video_codec and video_codec!='h264'
+      self.transcode_video = not self.can_play_video_codec(video_codec)
       self.transcode_audio = transcode_audio
       self.transcode = transcode_container or self.transcode_video or self.transcode_audio
       self.trans_fn = None
@@ -131,6 +139,12 @@ class Transcoder(object):
   @property
   def fn(self):
     return self.trans_fn if self.transcode else self.source_fn
+    
+  def can_play_video_codec(self, video_codec):
+    if self.cast.device.model_name=='Chromecast Ultra':
+      return video_codec in ('h264','h265','hevc')
+    else:
+      return video_codec in ('h264',)
     
   def wait_for_byte(self, offset, buffer=128*1024*1024):
     if self.done: return
@@ -296,7 +310,7 @@ class Gnomecast(object):
       notes.append('Loading...')
 #    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
 #      notes.append('Cast: %s' % self.last_known_player_state)
-    if self.transcoder and not self.transcoder.done:
+    if self.transcoder and not self.transcoder.done and self.duration:
       notes.append('Converting: %i%%' % (self.transcoder.progress_seconds*100 // self.duration))
     self.file_button.set_label('  -  '.join(notes))
     
@@ -734,6 +748,7 @@ class Gnomecast(object):
   def select_cast(self, cast):
     self.cast = cast
     if cast:
+#      cast.media_controller.app_id = 'FF0F6B72'
       self.last_known_volume_level = cast.media_controller.status.volume_level
       self.volume_button.set_value(cast.media_controller.status.volume_level)
     self.last_known_player_state = None
