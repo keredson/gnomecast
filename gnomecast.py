@@ -159,23 +159,24 @@ class Transcoder(object):
     print('done waiting')
   
   def monitor(self):
-    line = ''
+    line = b''
     r = re.compile(r'=\s+')
     while True:
-      char = self.p.stdout.read(1).decode()
-      if char == '' and self.p.poll() != None:
+      byte = self.p.stdout.read(1)
+      if byte == b'' and self.p.poll() != None:
         break
-      if char != '':
-        line += char
-        if char == '\r':
+      if byte != b'':
+        line += byte
+        if byte == b'\r':
           # frame=92578 fps=3937 q=-1.0 size= 1142542kB time=01:04:21.14 bitrate=2424.1kbits/s speed= 164x 
+          line = line.decode()
           line = r.sub('=', line)
           items = [s.split('=') for s in line.split()]
           d = dict([x for x in items if len(x)==2])
           print(d)
           self.progress_bytes = int(d.get('size','0kb')[:-2])*1024
           self.progress_seconds = parse_ffmpeg_time(d.get('time','00:00:00'))
-          line = ''
+          line = b''
     self.p.stdout.close()
     self.done = True
     self.done_callback()
