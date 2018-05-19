@@ -384,7 +384,7 @@ class Gnomecast(object):
           dialog.run()
           dialog.destroy()
       else:
-        self.cast_combo.set_active(0)
+        self.cast_combo.set_active(1 if len(chromecasts) == 1 else 0)
     GLib.idle_add(f)
   
   def update_media_button_states(self):
