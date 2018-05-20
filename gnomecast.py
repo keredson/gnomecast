@@ -98,6 +98,8 @@ class Transcoder(object):
       self.transcode = False
       self.trans_fn = prev_transcoder.trans_fn
     else:
+      if prev_transcoder:
+        prev_transcoder.destroy()
       output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
       container = fn.lower().split(".")[-1]
       video_codec = None
@@ -106,7 +108,7 @@ class Transcoder(object):
         line = line.strip()
         if line.startswith('Stream') and 'Video' in line and not video_codec:
           video_codec = line.split()[3]
-        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line):
+        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line or 'mp3' in line):
           transcode_audio = False
       print('Transcoder', fn, container, video_codec, transcode_audio)
       transcode_container = container not in ('mp4','aac','mp3','wav')
@@ -178,7 +180,7 @@ class Transcoder(object):
           line = ''
     self.p.stdout.close()
     self.done = True
-    self.done_callback()
+    self.done_callback(did_transcode=True)
   
   def destroy(self):
     self.cast.media_controller.stop()
@@ -295,12 +297,14 @@ class Gnomecast(object):
     handler = TransLogger(app, setup_console_handler=True)
     httpserver.serve(handler, host=self.ip, port=str(self.port), daemon_threads=True)
 
-  def update_status(self):
+  def update_status(self, did_transcode=False):
+    if did_transcode:
+      self.save_button.set_visible(True)
     if self.fn is None:
       self.file_button.set_label("Choose an audio or video file...")
       return
     fn = os.path.basename(self.fn)
-    MAX_LEN = 45
+    MAX_LEN = 40
     if len(fn) > MAX_LEN:
       fn = fn[:MAX_LEN-10] + '...' + fn[-10:]
     notes = [fn]
@@ -432,9 +436,14 @@ class Gnomecast(object):
 
     win.add(vbox_outer)
 
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    vbox.pack_start(hbox, False, False, 0)
     self.file_button = button1 = Gtk.Button("Choose an audio or video file...")
     button1.connect("clicked", self.on_file_clicked)
-    vbox.pack_start(button1, False, False, 0)
+    hbox.pack_start(button1, True, True, 0)
+    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
+    self.save_button.connect("clicked", self.save_transcoded_file)
+    hbox.pack_start(self.save_button, False, False, 0)
 
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
     subtitle_store.append(["No subtitles.", -1, None])
@@ -495,6 +504,9 @@ class Gnomecast(object):
     win.connect("delete-event", self.quit)
     win.connect("key_press_event", self.on_key_press)
     win.show_all()
+
+    self.save_button.set_visible(False)
+
     win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
@@ -509,6 +521,9 @@ class Gnomecast(object):
       self.last_known_volume_level = volume
       self.cast.set_volume(volume)
       print('setting volume', volume)
+      
+  def save_transcoded_file(self):
+    print('save_transcoded_file')
 
   @throttle()
   def scrubber_moved(self, scale, scroll_type, seconds):
@@ -595,6 +610,10 @@ class Gnomecast(object):
           (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
            Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 
+      downloads_dir = os.path.expanduser('~/Downloads')
+      if os.path.isdir(downloads_dir):
+        dialog.set_current_folder(downloads_dir)
+
       filter_py = Gtk.FileFilter()
       filter_py.set_name("Videos")
       filter_py.add_mime_type("video/*")
@@ -617,6 +636,9 @@ class Gnomecast(object):
           (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
            Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 
+      if self.fn:
+        dialog.set_current_folder(os.path.dirname(self.fn))
+      
       filter_py = Gtk.FileFilter()
       filter_py.set_name("Subtitles")
       filter_py.add_pattern("*.srt")
@@ -680,6 +702,7 @@ class Gnomecast(object):
     threading.Thread(target=self.update_transcoder).start()
   
   def update_transcoder(self):
+    self.save_button.set_visible(False)
     if self.cast and self.fn:
       self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status), self.transcoder)
       if self.autoplay:
