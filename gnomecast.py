@@ -536,7 +536,8 @@ class Gnomecast(object):
     print(fn, '=>', new_fn)
     os.rename(fn, new_fn)
     os.remove(self.fn)
-    self.transcoder.trans_fn = new_fn
+    self.transcoder.source_fn = new_fn
+    self.transcoder.transcode = False
     self.fn = new_fn
     def f():
       self.save_button.set_visible(False)
@@ -716,6 +717,10 @@ class Gnomecast(object):
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
+    self.subtitle_store.clear()
+    self.subtitle_store.append(["Checking for subtitles...", -1, None])
+    self.subtitle_store.append(["Add subtitle file...", -2, None])
+    self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
     threading.Thread(target=self.gen_thumbnail).start()
@@ -774,6 +779,10 @@ class Gnomecast(object):
       new_subtitles.append((subtitle_id, subtitles))
       os.remove(srt_fn)
     def f():
+      self.subtitle_store.clear()
+      self.subtitle_store.append(["No subtitles.", -1, None])
+      self.subtitle_store.append(["Add subtitle file...", -2, None])
+      self.subtitle_combo.set_active(0)
       pos = len(self.subtitle_store)
       for id, subs in new_subtitles:
         self.subtitle_store.append([id, pos-2, subs])
