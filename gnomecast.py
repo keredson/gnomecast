@@ -764,6 +764,7 @@ class Gnomecast(object):
         self.thumbnail_image.set_from_file(thumbnail_fn)
         os.remove(thumbnail_fn)
         self.win.resize(1,1)
+      self.scrubber_adj.set_value(0)
       self.update_status()
     GLib.idle_add(f)
     new_subtitles = []
