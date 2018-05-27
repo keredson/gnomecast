@@ -58,7 +58,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '0.3.0'
+__version__ = '1.4.0'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
