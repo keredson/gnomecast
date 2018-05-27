@@ -443,6 +443,7 @@ class Gnomecast(object):
     button1.connect("clicked", self.on_file_clicked)
     hbox.pack_start(button1, True, True, 0)
     self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
+    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.save_button.connect("clicked", self.save_transcoded_file)
     hbox.pack_start(self.save_button, False, False, 0)
 
@@ -523,8 +524,24 @@ class Gnomecast(object):
       self.cast.set_volume(volume)
       print('setting volume', volume)
       
-  def save_transcoded_file(self):
+  def save_transcoded_file(self, x):
     print('save_transcoded_file')
+    if not self.transcoder or not self.transcoder.transcode:
+      return
+    fn = self.transcoder.fn
+    display_name = os.path.basename(self.fn)
+    path = os.path.dirname(self.fn)
+    display_name = os.path.splitext(display_name)[0]+'.mp4'
+    new_fn = os.path.join(path, display_name)
+    print(fn, '=>', new_fn)
+    os.rename(fn, new_fn)
+    os.remove(self.fn)
+    self.transcoder.trans_fn = new_fn
+    self.fn = new_fn
+    def f():
+      self.save_button.set_visible(False)
+      self.update_status()
+    GLib.idle_add(f)
 
   @throttle()
   def scrubber_moved(self, scale, scroll_type, seconds):
@@ -707,7 +724,7 @@ class Gnomecast(object):
   def update_transcoder(self):
     self.save_button.set_visible(False)
     if self.cast and self.fn:
-      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status), self.transcoder)
+      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.transcoder)
       if self.autoplay:
         self.autoplay = False
         self.play_clicked(None)
