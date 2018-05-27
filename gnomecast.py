@@ -370,6 +370,7 @@ class Gnomecast(object):
     def f():
       self.cast_store.clear()
       self.cast_store.append([None, "Select a cast device..."])
+      self.cast_store.append([-1, 'Add a non-local Chromecast...'])
       for cc in chromecasts:
         friendly_name = cc.device.friendly_name
         if cc.cast_type!='cast':
@@ -388,7 +389,7 @@ class Gnomecast(object):
           dialog.run()
           dialog.destroy()
       else:
-        self.cast_combo.set_active(1 if len(chromecasts) == 1 else 0)
+        self.cast_combo.set_active(2 if len(chromecasts) == 1 else 0)
     GLib.idle_add(f)
   
   def update_media_button_states(self):
@@ -807,14 +808,48 @@ class Gnomecast(object):
     self.last_known_player_state = None
     self.update_media_button_states()
     threading.Thread(target=self.update_transcoder).start()
+    
 
+  def get_nonlocal_cast(self):
+    dialogWindow = Gtk.MessageDialog(self.win,
+                          Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                          Gtk.MessageType.QUESTION,
+                          Gtk.ButtonsType.OK_CANCEL,
+                          '\nPlease specify the IP address or hostname of a Chromecast device:')
+
+    dialogWindow.set_title('Add a non-local Chromecast')
+
+    dialogBox = dialogWindow.get_content_area()
+    userEntry = Gtk.Entry()
+#    userEntry.set_size_request(250,0)
+    dialogBox.pack_end(userEntry, False, False, 0)
+
+    dialogWindow.show_all()
+    response = dialogWindow.run()
+    text = userEntry.get_text() 
+    dialogWindow.destroy()
+    if (response == Gtk.ResponseType.OK) and (text != ''):
+      print(text)
+      try:
+        cast = pychromecast.Chromecast(text)
+        self.cast_store.append([cast, text])
+        self.cast_combo.set_active(len(self.cast_store)-1)
+      except pychromecast.error.ChromecastConnectionError:
+        dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "Chromecast Not Found")
+        dialog.format_secondary_text("The Chromecast '%s' wasn't found." % text)
+        dialog.run()
+        dialog.destroy()
+        
   def on_cast_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
       if tree_iter is not None:
           model = combo.get_model()
           cast, name = model[tree_iter][:2]
-          print(cast)
-          self.select_cast(cast)
+          if cast==-1:
+            self.get_nonlocal_cast()
+          else:
+            print(cast)
+            self.select_cast(cast)
       else:
           entry = combo.get_child()
 
