@@ -673,8 +673,10 @@ class Gnomecast(object):
       with open(fn) as f:
         self.subtitles = f.read()
     else:
-      with open(fn) as f:
+      with open(fn,'rb') as f:
         caps = f.read()
+        try: caps = caps.decode()
+        except UnicodeDecodeError: caps = caps.decode('latin-1')
       if caps.startswith('\ufeff'): # BOM
         caps = caps[1:]
       converter = pycaption.CaptionConverter()
@@ -705,7 +707,7 @@ class Gnomecast(object):
   def update_transcoder(self):
     self.save_button.set_visible(False)
     if self.cast and self.fn:
-      self.transcoder = Transcoder(self.cast, self.fn, lambda: GLib.idle_add(self.update_status), self.transcoder)
+      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status), self.transcoder)
       if self.autoplay:
         self.autoplay = False
         self.play_clicked(None)
