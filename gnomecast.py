@@ -715,6 +715,11 @@ class Gnomecast(object):
       GLib.idle_add(f)
       return
     fn = os.path.abspath(fn)
+    ext = fn.split('.')[-1]
+    sexts = ['vtt', 'srt']
+    for sext in sexts:
+      if os.path.isfile(fn[:-len(ext)] + sext):
+        select_subtitles_file(self, sext) 
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
