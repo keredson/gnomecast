@@ -715,18 +715,22 @@ class Gnomecast(object):
       GLib.idle_add(f)
       return
     fn = os.path.abspath(fn)
+    auto_subtitle = False
     ext = fn.split('.')[-1]
     sexts = ['vtt', 'srt']
     for sext in sexts:
       if os.path.isfile(fn[:-len(ext)] + sext):
-        select_subtitles_file(self, sext) 
+        select_subtitles_file(self, sext)
+        auto_subtitle = True
+        break
     self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
-    self.subtitle_store.clear()
-    self.subtitle_store.append(["Checking for subtitles...", -1, None])
-    self.subtitle_store.append(["Add subtitle file...", -2, None])
-    self.subtitle_combo.set_active(0)
+    if not auto_subtitle:
+      self.subtitle_store.clear()
+      self.subtitle_store.append(["Checking for subtitles...", -1, None])
+      self.subtitle_store.append(["Add subtitle file...", -2, None])
+      self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
     threading.Thread(target=self.gen_thumbnail).start()
