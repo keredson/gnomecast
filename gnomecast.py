@@ -749,7 +749,7 @@ class Gnomecast(object):
     else:
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
       os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
+      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=-1:250', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
