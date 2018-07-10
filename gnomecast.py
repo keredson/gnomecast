@@ -790,6 +790,12 @@ class Gnomecast(object):
         self.subtitle_store.append([id, pos-2, subs])
         pos += 1
     GLib.idle_add(f)
+    ext = self.fn.split('.')[-1]
+    sexts = ['vtt', 'srt']
+    for sext in sexts:
+      if os.path.isfile(self.fn[:-len(ext)] + sext):
+        self.select_subtitles_file(self.fn[:-len(ext)] + sext) 
+        break
 
   def on_key_press(self, widget, event, user_data=None):
     key = Gdk.keyval_name(event.keyval)
