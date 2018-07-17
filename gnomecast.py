@@ -58,7 +58,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -397,8 +397,8 @@ class Gnomecast(object):
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
     self.volume_button.set_sensitive(bool(self.cast))
     self.stop_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
-    self.rewind_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
-    self.forward_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
+    self.rewind_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
+    self.forward_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
     self.play_button.set_image(Gtk.Image(stock=Gtk.STOCK_MEDIA_PAUSE) if self.cast and mc.status.player_state=='PLAYING' else Gtk.Image(stock=Gtk.STOCK_MEDIA_PLAY))
     if self.transcoder and self.duration:
       self.scrubber_adj.set_upper(self.duration)
@@ -465,8 +465,6 @@ class Gnomecast(object):
     self.scrubber.set_digits(0)
     def f(scale, s):
       notes = [self.humanize_seconds(s)]
-      if self.cast and self.cast.media_controller.status.player_state=='BUFFERING':
-        notes.append('...')
       return ''.join(notes)
     self.scrubber.connect("format-value", f)
     self.scrubber.connect("change-value", self.scrubber_move_started)
