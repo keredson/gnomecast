@@ -184,7 +184,7 @@ class Transcoder(object):
     self.done_callback(did_transcode=True)
   
   def destroy(self):
-    self.cast.media_controller.stop()
+    # self.cast.media_controller.stop()
     if self.p and self.p.poll() is None:
       self.p.terminate()
     if self.trans_fn and os.path.isfile(self.trans_fn):
