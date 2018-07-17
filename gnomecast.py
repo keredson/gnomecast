@@ -614,6 +614,9 @@ class Gnomecast(object):
       kwargs = {}
       if self.subtitles:
         kwargs['subtitles'] = 'http://%s:%s/subtitles.vtt' % (self.ip, self.port)
+      current_time = self.scrubber_adj.get_value()
+      if current_time:
+        kwargs['current_time'] = current_time
       ext = self.fn.split('.')[-1]
       ext = ''.join(ch for ch in ext if ch.isalnum()).lower()
       mc.play_media('http://%s:%s/media/%s.%s' % (self.ip, self.port, hash(self.fn), ext), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
@@ -867,7 +870,14 @@ class Gnomecast(object):
           print(text, position, subs)
           if position==-1: self.subtitles = None
           elif position==-2: self.on_new_subtitle_clicked()
-          else: self.subtitles = subs
+          else:
+            self.subtitles = subs
+            mc = self.cast.media_controller if self.cast else None
+            if mc and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED'):
+              self.stop_clicked(None)
+              self.cast.wait()
+              def f(): self.play_clicked(None)
+              threading.Timer(1, lambda: GLib.idle_add(f)).start()
       else:
           entry = combo.get_child()
 
