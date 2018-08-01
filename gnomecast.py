@@ -58,7 +58,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -184,7 +184,7 @@ class Transcoder(object):
     self.done_callback(did_transcode=True)
   
   def destroy(self):
-    self.cast.media_controller.stop()
+    # self.cast.media_controller.stop()
     if self.p and self.p.poll() is None:
       self.p.terminate()
     if self.trans_fn and os.path.isfile(self.trans_fn):
@@ -397,8 +397,8 @@ class Gnomecast(object):
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
     self.volume_button.set_sensitive(bool(self.cast))
     self.stop_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
-    self.rewind_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
-    self.forward_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('PLAYING','PAUSED')))
+    self.rewind_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
+    self.forward_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED')))
     self.play_button.set_image(Gtk.Image(stock=Gtk.STOCK_MEDIA_PAUSE) if self.cast and mc.status.player_state=='PLAYING' else Gtk.Image(stock=Gtk.STOCK_MEDIA_PLAY))
     if self.transcoder and self.duration:
       self.scrubber_adj.set_upper(self.duration)
@@ -465,8 +465,6 @@ class Gnomecast(object):
     self.scrubber.set_digits(0)
     def f(scale, s):
       notes = [self.humanize_seconds(s)]
-      if self.cast and self.cast.media_controller.status.player_state=='BUFFERING':
-        notes.append('...')
       return ''.join(notes)
     self.scrubber.connect("format-value", f)
     self.scrubber.connect("change-value", self.scrubber_move_started)
@@ -614,6 +612,9 @@ class Gnomecast(object):
       kwargs = {}
       if self.subtitles:
         kwargs['subtitles'] = 'http://%s:%s/subtitles.vtt' % (self.ip, self.port)
+      current_time = self.scrubber_adj.get_value()
+      if current_time:
+        kwargs['current_time'] = current_time
       ext = self.fn.split('.')[-1]
       ext = ''.join(ch for ch in ext if ch.isalnum()).lower()
       mc.play_media('http://%s:%s/media/%s.%s' % (self.ip, self.port, hash(self.fn), ext), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
@@ -790,6 +791,12 @@ class Gnomecast(object):
         self.subtitle_store.append([id, pos-2, subs])
         pos += 1
     GLib.idle_add(f)
+    ext = self.fn.split('.')[-1]
+    sexts = ['vtt', 'srt']
+    for sext in sexts:
+      if os.path.isfile(self.fn[:-len(ext)] + sext):
+        self.select_subtitles_file(self.fn[:-len(ext)] + sext) 
+        break
 
   def on_key_press(self, widget, event, user_data=None):
     key = Gdk.keyval_name(event.keyval)
@@ -861,7 +868,14 @@ class Gnomecast(object):
           print(text, position, subs)
           if position==-1: self.subtitles = None
           elif position==-2: self.on_new_subtitle_clicked()
-          else: self.subtitles = subs
+          else:
+            self.subtitles = subs
+            mc = self.cast.media_controller if self.cast else None
+            if mc and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED'):
+              self.stop_clicked(None)
+              self.cast.wait()
+              def f(): self.play_clicked(None)
+              threading.Timer(1, lambda: GLib.idle_add(f)).start()
       else:
           entry = combo.get_child()
 
