@@ -302,17 +302,20 @@ class Gnomecast(object):
   def update_status(self, did_transcode=False):
     if did_transcode:
       self.save_button.set_visible(True)
+      self.prep_next_transcode()
 #    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
 #      notes.append('Cast: %s' % self.last_known_player_state)
-    for row in self.files_store:
-      duration = row[2]
-      transcoder = row[7]
-      if transcoder:
-        if duration:
-          if transcoder.done:
-            row[5] = 100
-          else:
-            row[5] = transcoder.progress_seconds*100 // duration
+    def f():
+      for row in self.files_store:
+        duration = row[2]
+        transcoder = row[7]
+        if transcoder:
+          if duration:
+            if transcoder.done:
+              row[5] = 100
+            else:
+              row[5] = transcoder.progress_seconds*100 // duration
+    GLib.idle_add(f)
     
   def monitor_cast(self):
     while True:
@@ -700,6 +703,7 @@ class Gnomecast(object):
       mc.play_media('http://%s:%s/media/%s.%s' % (self.ip, self.port, hash(self.fn), ext), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
       print(cast.status)
       print(mc.status)
+      self.prep_next_transcode()
     elif mc.status.player_state=='PLAYING':
       mc.pause()
     elif mc.status.player_state=='PAUSED':
@@ -846,8 +850,9 @@ class Gnomecast(object):
       for row in self.files_store:
         if row[1]!=self.fn: continue
         transcoder = row[7]
-        self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
-        row[7] = self.transcoder
+        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.fn:
+          self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+          row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
         self.play_clicked(None)
@@ -858,6 +863,19 @@ class Gnomecast(object):
           transcoder.destroy()
           row[7] = None
     GLib.idle_add(self.update_media_button_states)
+  
+  def prep_next_transcode(self):
+    transcode_next = False
+    for row in self.files_store:
+      fn = row[1]
+      transcoder = row[7]
+      if transcode_next and not transcoder:
+        print('prep_next_transcode', fn)
+        transcoder = Transcoder(self.cast, fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        row[7] = transcoder
+        transcode_next = False
+      if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
+        transcode_next = True
         
   def gen_thumbnail(self, fn):
     container = fn.lower().split(".")[-1]
