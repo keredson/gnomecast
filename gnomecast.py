@@ -123,7 +123,8 @@ class Transcoder(object):
     print (self.transcode, self.transcode_video, self.transcode_audio)
     if self.transcode:
       self.done = False
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_')[1]
+      dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
+      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
       os.remove(self.trans_fn)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a', 'mp3' if self.transcode_audio else 'copy', self.trans_fn] # '-movflags', 'faststart'
