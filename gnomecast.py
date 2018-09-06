@@ -218,8 +218,8 @@ class Gnomecast(object):
     self.fn = None
     self.last_fn_played = None
     self.transcoder = None
-    self.subtitles = None
     self.duration = None
+    self.subtitles = None
     self.seeking = False
     self.last_known_volume_level = None
     bus = dbus.SessionBus() if DBUS_AVAILABLE else None
@@ -302,23 +302,20 @@ class Gnomecast(object):
   def update_status(self, did_transcode=False):
     if did_transcode:
       self.save_button.set_visible(True)
-    if self.fn is None:
-      self.file_button.set_label("Choose an audio or video file...")
-      return
-    fn = os.path.basename(self.fn)
-    MAX_LEN = 40
-    if len(fn) > MAX_LEN:
-      fn = fn[:MAX_LEN-10] + '...' + fn[-10:]
-    notes = [fn]
-    if self.duration is not None:
-      notes.append(self.humanize_seconds(self.duration))
-    else:
-      notes.append('Loading...')
 #    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
 #      notes.append('Cast: %s' % self.last_known_player_state)
-    if self.transcoder and not self.transcoder.done and self.duration:
-      notes.append('Converting: %i%%' % (self.transcoder.progress_seconds*100 // self.duration))
-    self.file_button.set_label('  -  '.join(notes))
+    for row in self.files_store:
+      if row[1]!=self.fn: continue
+      row[6] = 'media-playback-start'
+      duration = row[2]
+      if self.transcoder and duration:
+        if self.transcoder.done:
+          row[5] = 100
+        else:
+          row[5] = self.transcoder.progress_seconds*100 // duration
+          print('Converting: %i%%' % (self.transcoder.progress_seconds*100 // duration))
+      elif duration:
+        row[5] = 100
     
   def monitor_cast(self):
     while True:
@@ -438,16 +435,49 @@ class Gnomecast(object):
     hbox.pack_start(refresh_button, False, False, 0)
 
     win.add(vbox_outer)
+    
+    # list of queued files
+    self.files_store = Gtk.ListStore(str, str, int, str, str, int, str) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon
+    self.files_view = Gtk.TreeView(self.files_store)
+    self.files_view.set_headers_visible(False)
+    column = Gtk.TreeViewColumn("Name", Gtk.CellRendererText(), text=0)
+    column.set_expand(True)
+    self.files_view.append_column(column)
+    r = Gtk.CellRendererText()
+    r.props.xalign = 1.0
+    self.files_view.append_column(Gtk.TreeViewColumn("Duration", r, text=3))
+    column_progress = Gtk.TreeViewColumn("Progress", Gtk.CellRendererProgress(), value=5)
+    self.files_view.append_column(column_progress)
+
+    column_pixbuf = Gtk.TreeViewColumn("Playing", Gtk.CellRendererPixbuf(), icon_name=6)
+    self.files_view.append_column(column_pixbuf)
+
+    select = self.files_view.get_selection()
+    select.connect("changed", self.on_files_view_selection_changed)
+    self.files_view.connect("row-activated", self.on_files_view_row_activated)
+    
+
+    self.scrolled_window = Gtk.ScrolledWindow()
+    self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    self.scrolled_window.add(self.files_view)
+    self.scrolled_window.set_min_content_height(24)
+    #self.scrolled_window.set_visible(False)
+    vbox.pack_start(self.scrolled_window, True, True, 0)
 
     hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     vbox.pack_start(hbox, False, False, 0)
-    self.file_button = button1 = Gtk.Button("Choose an audio or video file...")
-    button1.connect("clicked", self.on_file_clicked)
-    hbox.pack_start(button1, True, True, 0)
+    self.file_button = Gtk.Button("   Add one or more audio or video files...", image=Gtk.Image(stock=Gtk.STOCK_ADD))
+    self.file_button.set_always_show_image(True)
+    self.file_button.connect("clicked", self.on_file_clicked)
+    hbox.pack_start(self.file_button, True, True, 0)
     self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
     self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.save_button.connect("clicked", self.save_transcoded_file)
     hbox.pack_start(self.save_button, False, False, 0)
+    self.remove_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_REMOVE))
+    self.remove_button.set_tooltip_text('Overwrite original file with transcoded version.')
+    #self.remove_button.connect("clicked", self.save_transcoded_file)
+    hbox.pack_start(self.remove_button, False, False, 0)
 
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
     subtitle_store.append(["No subtitles.", -1, None])
@@ -516,6 +546,35 @@ class Gnomecast(object):
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
     self.seeking = True
+  
+  def on_files_view_selection_changed(self, selection):
+    model, treeiter = selection.get_selected()
+    if treeiter is not None:
+        print("You selected", model[treeiter])
+        
+  def on_files_view_row_activated(self, widget, row, col):
+    model = widget.get_model()
+    print('double-clicked', model[row][:])
+    fn = model[row][1]
+    if fn:
+      self.select_file(fn)
+    return True
+          
+  def queue_files(self, files):
+    existing_files = set([row[1] for row in self.files_store])
+    for fn in files:
+      if fn in existing_files: continue
+      display = os.path.basename(fn)
+      MAX_LEN = 40
+      if len(display) > MAX_LEN:
+        display = display[:MAX_LEN-10] + '...' + display[-10:]
+      self.files_store.append([display, fn, None, '...', None, None, None])
+      threading.Thread(target=self.gen_thumbnail, args=[fn]).start()
+      threading.Thread(target=self.get_info, args=[fn]).start()
+    self.scrolled_window.set_visible(True)
+    self.scrolled_window.set_min_content_height(24*min(len(self.files_store),3))
+    if len(files) and self.fn is None:
+      self.select_file(files[0])
 
   @throttle(seconds=1)
   def volume_moved(self, button, volume):
@@ -583,6 +642,9 @@ class Gnomecast(object):
     if self.cast:
       self.cast.media_controller.stop()
     self.restore_screensaver()
+    for row in self.files_store:
+      if row[4] and os.path.isfile(row[4]):
+        os.remove(row[4])
     Gtk.main_quit()
 
   def forward_clicked(self, widget):
@@ -631,6 +693,7 @@ class Gnomecast(object):
           Gtk.FileChooserAction.OPEN,
           (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
            Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+      dialog.set_select_multiple(True)
 
       downloads_dir = os.path.expanduser('~/Downloads')
       if os.path.isdir(downloads_dir):
@@ -645,8 +708,9 @@ class Gnomecast(object):
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
           print("Open clicked")
-          print("File selected: " + dialog.get_filename())
-          self.select_file(dialog.get_filename())
+          print("File selected:", dialog.get_filenames())
+          self.queue_files(dialog.get_filenames())
+          #self.select_file(dialog.get_filename())
       elif response == Gtk.ResponseType.CANCEL:
           print("Cancel clicked")
 
@@ -717,7 +781,6 @@ class Gnomecast(object):
       GLib.idle_add(f)
       return
     fn = os.path.abspath(fn)
-    self.file_button.set_label(os.path.basename(fn))
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
     self.subtitle_store.clear()
@@ -726,8 +789,21 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
-    threading.Thread(target=self.gen_thumbnail).start()
     threading.Thread(target=self.update_transcoder).start()
+    threading.Thread(target=self.update_subtitles).start()
+    def f():
+      self.scrubber_adj.set_value(0)
+      for row in self.files_store:
+        thumbnail_fn = row[4]
+        if self.fn == row[1]:
+          if thumbnail_fn:
+            self.thumbnail_image.set_from_file(thumbnail_fn)
+            self.win.resize(1,1)
+          row[6] = 'media-playback-start'
+          self.duration = row[2]
+        else:
+          row[6] = None
+    GLib.idle_add(f)
   
   def update_transcoder(self):
     self.save_button.set_visible(False)
@@ -742,34 +818,52 @@ class Gnomecast(object):
         self.transcoder = None
     GLib.idle_add(self.update_media_button_states)
         
-  def gen_thumbnail(self):
-    container = self.fn.lower().split(".")[-1]
+  def gen_thumbnail(self, fn):
+    container = fn.lower().split(".")[-1]
     thumbnail_fn = None
-    subtitle_ids = []
     if container in ('aac','mp3','wav'):
-      cmd = ['ffmpeg', '-i', self.fn, '-f', 'ffmetadata', '-']
+      cmd = ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-']
     else:
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
       os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', self.fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
+      cmd = ['ffmpeg', '-y', '-i', fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    if os.path.isfile(thumbnail_fn):
+      for row in self.files_store:
+        if row[1]==fn:
+          row[4] = thumbnail_fn
+    def f():
+      if self.fn == fn and thumbnail_fn:
+        self.thumbnail_image.set_from_file(thumbnail_fn)
+        self.win.resize(1,1)
+      self.update_status()
+    GLib.idle_add(f)
+
+  def get_info(self, fn):
+    cmd = ['ffprobe', '-i', fn]
+    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().split('\n'):
       line = line.strip()
       if line.startswith('Duration:'):
-        self.duration = parse_ffmpeg_time(line.split()[1].strip(','))
+        duration = parse_ffmpeg_time(line.split()[1].strip(','))
+        if fn == self.fn:
+          self.duration = duration
+        for row in self.files_store:
+          if row[1]==fn:
+            row[2] = duration
+            row[3] = self.humanize_seconds(duration)
+
+  def update_subtitles(self):
+    subtitle_ids = []
+    cmd = ['ffprobe', '-i', self.fn]
+    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    for line in output.decode().split('\n'):
+      line = line.strip()
       if line.startswith('Stream') and 'Subtitle' in line:
         id = line.split()[1].strip('#').replace(':','.')
         id = id[:id.index('(')]
         subtitle_ids.append(id)
     print('subtitle_ids', subtitle_ids)
-    def f():
-      if thumbnail_fn:
-        self.thumbnail_image.set_from_file(thumbnail_fn)
-        os.remove(thumbnail_fn)
-        self.win.resize(1,1)
-      self.scrubber_adj.set_value(0)
-      self.update_status()
-    GLib.idle_add(f)
     new_subtitles = []
     for subtitle_id in subtitle_ids:
       srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
