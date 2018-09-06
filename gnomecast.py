@@ -327,6 +327,8 @@ class Gnomecast(object):
       if mc.status.player_state != self.last_known_player_state:
         if mc.status.player_state=='PLAYING' and self.last_known_player_state=='BUFFERING' and seeking:
           self.seeking = False
+        if mc.status.player_state=='IDLE' and self.last_known_player_state=='PLAYING':
+          self.check_for_next_in_queue()
         if mc.status.player_state=='PLAYING':
           self.inhibit_screensaver()
         else:
@@ -827,8 +829,6 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
-    threading.Thread(target=self.update_transcoders).start()
-    threading.Thread(target=self.update_subtitles).start()
     def f():
       self.scrubber_adj.set_value(0)
       for row in self.files_store:
@@ -841,6 +841,8 @@ class Gnomecast(object):
           self.duration = row[2]
         else:
           row[6] = None
+      threading.Thread(target=self.update_transcoders).start()
+      threading.Thread(target=self.update_subtitles).start()
     GLib.idle_add(f)
   
   def update_transcoders(self):
@@ -863,6 +865,18 @@ class Gnomecast(object):
           transcoder.destroy()
           row[7] = None
     GLib.idle_add(self.update_media_button_states)
+  
+  def check_for_next_in_queue(self):
+    next = False
+    for row in self.files_store:
+      fn = row[1]
+      if next:
+        print('check_for_next_in_queue', fn)
+        self.autoplay = True
+        self.select_file(fn)
+        next = False
+      if self.cast and self.fn and self.fn == fn:
+        next = True
   
   def prep_next_transcode(self):
     transcode_next = False
