@@ -305,16 +305,14 @@ class Gnomecast(object):
 #    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
 #      notes.append('Cast: %s' % self.last_known_player_state)
     for row in self.files_store:
-      if row[1]!=self.fn: continue
-      row[6] = 'media-playback-start'
       duration = row[2]
-      if self.transcoder and duration:
-        if self.transcoder.done:
-          row[5] = 100
-        else:
-          row[5] = self.transcoder.progress_seconds*100 // duration
-      elif duration:
-        row[5] = 100
+      transcoder = row[7]
+      if transcoder:
+        if duration:
+          if transcoder.done:
+            row[5] = 100
+          else:
+            row[5] = transcoder.progress_seconds*100 // duration
     
   def monitor_cast(self):
     while True:
@@ -436,7 +434,7 @@ class Gnomecast(object):
     win.add(vbox_outer)
     
     # list of queued files
-    self.files_store = Gtk.ListStore(str, str, int, str, str, int, str) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon
+    self.files_store = Gtk.ListStore(str, str, int, str, str, int, str, object) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon, transcoder
     self.files_view = Gtk.TreeView(self.files_store)
     self.files_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
     self.files_view.set_headers_visible(False)
@@ -470,14 +468,14 @@ class Gnomecast(object):
     self.file_button.set_always_show_image(True)
     self.file_button.connect("clicked", self.on_file_clicked)
     hbox.pack_start(self.file_button, True, True, 0)
-    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
-    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
-    self.save_button.connect("clicked", self.save_transcoded_file)
-    hbox.pack_start(self.save_button, False, False, 0)
     self.remove_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_REMOVE))
     self.remove_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.remove_button.connect("clicked", self.remove_files)
     hbox.pack_start(self.remove_button, False, False, 0)
+    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
+    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
+    self.save_button.connect("clicked", self.save_transcoded_file)
+    hbox.pack_start(self.save_button, False, False, 0)
 
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
     subtitle_store.append(["No subtitles.", -1, None])
@@ -554,9 +552,17 @@ class Gnomecast(object):
    
   def remove_files(self, w):
     store, paths = self.files_view.get_selection().get_selected_rows()
-    for path in paths:
+    for path in reversed(paths):
       print('remove', path)
-      store.remove(store.get_iter(path))
+      iterx = store.get_iter(path)
+      transcoder = store.get_value(iterx, 7)
+      if transcoder:
+        transcoder.destroy()
+      fn = store.get_value(iterx, 1)
+      store.remove(iterx)
+      if self.fn == fn:
+        self.unselect_file()
+      
         
   def on_files_view_row_activated(self, widget, row, col):
     model = widget.get_model()
@@ -574,7 +580,7 @@ class Gnomecast(object):
       MAX_LEN = 40
       if len(display) > MAX_LEN:
         display = display[:MAX_LEN-10] + '...' + display[-10:]
-      self.files_store.append([display, fn, None, '...', None, None, None])
+      self.files_store.append([display, fn, None, '...', None, None, None, None])
       threading.Thread(target=self.get_info, args=[fn]).start()
     def gen_thumbnails():
       for fn in files:
@@ -646,8 +652,10 @@ class Gnomecast(object):
 
   
   def quit(self, a=0, b=0):
-    if self.transcoder:
-      self.transcoder.destroy()
+    for row in self.files_store:
+      transcoder =row[7]
+      if transcoder:
+        transcoder.destroy()
     if self.cast:
       self.cast.media_controller.stop()
     self.restore_screensaver()
@@ -780,6 +788,23 @@ class Gnomecast(object):
     self.subtitle_store.append([display_name, pos-2, self.subtitles])
     self.subtitle_combo.set_active(pos)
     
+  def unselect_file(self):
+    self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
+    self.fn = None
+    self.subtitle_store.clear()
+    self.subtitle_store.append(["No subtitles.", -1, None])
+    self.subtitle_combo.set_active(0)
+    self.transcoder = None
+    self.duration = None
+    if self.cast:
+      self.cast.media_controller.stop()
+    def f():
+      self.scrubber_adj.set_value(0)
+      for row in self.files_store:
+          row[6] = None
+      self.win.resize(1,1)
+    GLib.idle_add(f)
+  
   def select_file(self, fn):
     if not os.path.isfile(fn):
       def f():
@@ -798,7 +823,7 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
-    threading.Thread(target=self.update_transcoder).start()
+    threading.Thread(target=self.update_transcoders).start()
     threading.Thread(target=self.update_subtitles).start()
     def f():
       self.scrubber_adj.set_value(0)
@@ -814,17 +839,24 @@ class Gnomecast(object):
           row[6] = None
     GLib.idle_add(f)
   
-  def update_transcoder(self):
+  def update_transcoders(self):
     self.save_button.set_visible(False)
     if self.cast and self.fn:
-      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.transcoder)
+      transcoder = None
+      for row in self.files_store:
+        if row[1]!=self.fn: continue
+        transcoder = row[7]
+        self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
         self.play_clicked(None)
-    else:
-      if self.transcoder:
-        self.transcoder.destroy()
-        self.transcoder = None
+    if not self.cast:
+      for row in self.files_store:
+        transcoder = row[7]
+        if transcoder:
+          transcoder.destroy()
+          row[7] = None
     GLib.idle_add(self.update_media_button_states)
         
   def gen_thumbnail(self, fn):
@@ -918,7 +950,7 @@ class Gnomecast(object):
       self.volume_button.set_value(cast.media_controller.status.volume_level)
     self.last_known_player_state = None
     self.update_media_button_states()
-    threading.Thread(target=self.update_transcoder).start()
+    threading.Thread(target=self.update_transcoders).start()
     
 
   def get_nonlocal_cast(self):
