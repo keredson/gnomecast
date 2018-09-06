@@ -313,7 +313,6 @@ class Gnomecast(object):
           row[5] = 100
         else:
           row[5] = self.transcoder.progress_seconds*100 // duration
-          print('Converting: %i%%' % (self.transcoder.progress_seconds*100 // duration))
       elif duration:
         row[5] = 100
     
@@ -439,6 +438,7 @@ class Gnomecast(object):
     # list of queued files
     self.files_store = Gtk.ListStore(str, str, int, str, str, int, str) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon
     self.files_view = Gtk.TreeView(self.files_store)
+    self.files_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
     self.files_view.set_headers_visible(False)
     column = Gtk.TreeViewColumn("Name", Gtk.CellRendererText(), text=0)
     column.set_expand(True)
@@ -476,7 +476,7 @@ class Gnomecast(object):
     hbox.pack_start(self.save_button, False, False, 0)
     self.remove_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_REMOVE))
     self.remove_button.set_tooltip_text('Overwrite original file with transcoded version.')
-    #self.remove_button.connect("clicked", self.save_transcoded_file)
+    self.remove_button.connect("clicked", self.remove_files)
     hbox.pack_start(self.remove_button, False, False, 0)
 
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
@@ -551,6 +551,12 @@ class Gnomecast(object):
     model, treeiter = selection.get_selected()
     if treeiter is not None:
         print("You selected", model[treeiter])
+   
+  def remove_files(self, w):
+    store, paths = self.files_view.get_selection().get_selected_rows()
+    for path in paths:
+      print('remove', path)
+      store.remove(store.get_iter(path))
         
   def on_files_view_row_activated(self, widget, row, col):
     model = widget.get_model()
@@ -562,20 +568,23 @@ class Gnomecast(object):
           
   def queue_files(self, files):
     existing_files = set([row[1] for row in self.files_store])
+    files = [f for f in files if f not in existing_files]
     for fn in files:
-      if fn in existing_files: continue
       display = os.path.basename(fn)
       MAX_LEN = 40
       if len(display) > MAX_LEN:
         display = display[:MAX_LEN-10] + '...' + display[-10:]
       self.files_store.append([display, fn, None, '...', None, None, None])
-      threading.Thread(target=self.gen_thumbnail, args=[fn]).start()
       threading.Thread(target=self.get_info, args=[fn]).start()
+    def gen_thumbnails():
+      for fn in files:
+        self.gen_thumbnail(fn)
+    threading.Thread(target=gen_thumbnails).start()
     self.scrolled_window.set_visible(True)
-    self.scrolled_window.set_min_content_height(24*min(len(self.files_store),3))
+    self.scrolled_window.set_min_content_height(24*min(len(self.files_store),4))
     if len(files) and self.fn is None:
       self.select_file(files[0])
-
+  
   @throttle(seconds=1)
   def volume_moved(self, button, volume):
     if self.last_known_volume_level != volume:
@@ -870,7 +879,7 @@ class Gnomecast(object):
       output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
       with open(srt_fn) as f:
         caps = f.read()
-      print('caps', caps)
+      #print('caps', caps)
       converter = pycaption.CaptionConverter()
       converter.read(caps, pycaption.detect_format(caps)())
       subtitles = converter.write(pycaption.WebVTTWriter())
