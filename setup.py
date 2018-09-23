@@ -13,7 +13,7 @@ def long_description():
 
 setup(
   name='gnomecast',
-  version=__import__('gnomecast').__version__,
+  version='1.4.1',
   description='A native Linux GUI for Chromecasting local files.',
   long_description=long_description(),
   author='Derek Anderson',
