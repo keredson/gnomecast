@@ -58,7 +58,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.4.1'
+__version__ = '1.5.0'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -446,10 +446,10 @@ class Gnomecast(object):
     column = Gtk.TreeViewColumn("Name", Gtk.CellRendererText(), text=0)
     column.set_expand(True)
     self.files_view.append_column(column)
-    r = Gtk.CellRendererText()
+    self.file_view_column_renderer = r = Gtk.CellRendererText()
     r.props.xalign = 1.0
     self.files_view.append_column(Gtk.TreeViewColumn("Duration", r, text=3))
-    column_progress = Gtk.TreeViewColumn("Progress", Gtk.CellRendererProgress(), value=5)
+    self.files_view_progress_column = column_progress = Gtk.TreeViewColumn("Progress", Gtk.CellRendererProgress(), value=5)
     self.files_view.append_column(column_progress)
 
     column_pixbuf = Gtk.TreeViewColumn("Playing", Gtk.CellRendererPixbuf(), icon_name=6)
@@ -463,8 +463,6 @@ class Gnomecast(object):
     self.scrolled_window = Gtk.ScrolledWindow()
     self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     self.scrolled_window.add(self.files_view)
-    self.scrolled_window.set_min_content_height(24)
-    #self.scrolled_window.set_visible(False)
     vbox.pack_start(self.scrolled_window, True, True, 0)
 
     hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -540,6 +538,8 @@ class Gnomecast(object):
     win.connect("key_press_event", self.on_key_press)
     win.show_all()
 
+    self.scrolled_window.set_visible(False)
+
     self.save_button.set_visible(False)
 
     win.resize(1,1)
@@ -592,9 +592,14 @@ class Gnomecast(object):
         self.gen_thumbnail(fn)
     threading.Thread(target=gen_thumbnails).start()
     self.scrolled_window.set_visible(True)
-    self.scrolled_window.set_min_content_height(24*min(len(self.files_store),4))
     if len(files) and self.fn is None:
       self.select_file(files[0])
+    path = Gtk.TreePath().new_first()
+    _1, _2, width, height = self.files_view_progress_column.cell_get_size()
+    height += self.file_view_column_renderer.get_padding().ypad*2
+    height += 2 # measured - row lines?
+    self.scrolled_window.set_min_content_height(height*min(len(self.files_store),6))
+    
   
   @throttle(seconds=1)
   def volume_moved(self, button, volume):
