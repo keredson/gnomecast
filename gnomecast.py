@@ -282,7 +282,6 @@ class Gnomecast(object):
     @app.get('/media/<id>.<ext>')
     def video(id, ext):
       print(list(bottle.request.headers.items()))
-      print('self.transcoder.fn', self.transcoder.fn)
       ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
       print('ranges', ranges)
       offset, end = ranges[0]
@@ -594,8 +593,28 @@ class Gnomecast(object):
     model = widget.get_model()
     print('double-clicked', model[row][:])
     fn = model[row][1]
-    if fn:
-      self.select_file(fn)
+    self.unselect_file()
+    self.fn = fn
+    self.transcoder = model[row][7]
+    self.duration = model[row][2]
+    thumbnail_fn = model[row][4]
+    if thumbnail_fn and os.path.isfile(thumbnail_fn):
+      self.thumbnail_image.set_from_file(thumbnail_fn)
+    if self.cast:
+      self.cast.media_controller.stop()
+    def f():
+      self.win.resize(1,1)
+      self.scrubber_adj.set_value(0)
+      for row in self.files_store:
+        if self.fn == row[1]:
+          row[6] = 'video-x-generic'
+        else:
+          row[6] = None
+      self.update_button_visible()
+      self.update_media_button_states()
+    GLib.idle_add(f)
+
+
     return True
           
   def queue_files(self, files):
@@ -685,7 +704,7 @@ class Gnomecast(object):
   
   def quit(self, a=0, b=0):
     for row in self.files_store:
-      transcoder =row[7]
+      transcoder = row[7]
       if transcoder:
         transcoder.destroy()
     if self.cast:
@@ -717,6 +736,7 @@ class Gnomecast(object):
     cast = self.cast
     mc = cast.media_controller
     
+    print('mc.status.player_state', mc.status.player_state, self.fn, hash(self.fn))
     if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != self.fn:
       self.last_fn_played = self.fn
       cast.wait()
@@ -839,6 +859,7 @@ class Gnomecast(object):
     GLib.idle_add(f)
   
   def select_file(self, fn):
+    self.unselect_file()
     if not os.path.isfile(fn):
       def f():
         dialog = Gtk.MessageDialog(self.win, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CLOSE, "File Not Found")
@@ -871,6 +892,7 @@ class Gnomecast(object):
       threading.Thread(target=self.update_transcoders).start()
       threading.Thread(target=self.update_subtitles).start()
       self.update_button_visible()
+      self.update_media_button_states()
     GLib.idle_add(f)
   
   def update_transcoders(self):
@@ -879,7 +901,7 @@ class Gnomecast(object):
       for row in self.files_store:
         if row[1]!=self.fn: continue
         transcoder = row[7]
-        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.fn:
+        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn:
           self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
           row[7] = self.transcoder
       if self.autoplay:
