@@ -91,6 +91,7 @@ class Transcoder(object):
     self.cast = cast
     self.source_fn = fn
     self.p = None
+    self.show_save_button = False
     
     if prev_transcoder and prev_transcoder.source_fn == self.source_fn:
       self.transcode_video = prev_transcoder.transcode_video
@@ -120,7 +121,7 @@ class Transcoder(object):
     self.progress_bytes = 0
     self.progress_seconds = 0
     self.done_callback = done_callback
-    print (self.transcode, self.transcode_video, self.transcode_audio)
+    print ('transcode, transcode_video, transcode_audio', self.transcode, self.transcode_video, self.transcode_audio)
     if self.transcode:
       self.done = False
       dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
@@ -182,6 +183,7 @@ class Transcoder(object):
           line = b''
     self.p.stdout.close()
     self.done = True
+    self.show_save_button = True
     self.done_callback(did_transcode=True)
   
   def destroy(self):
@@ -301,7 +303,7 @@ class Gnomecast(object):
 
   def update_status(self, did_transcode=False):
     if did_transcode:
-      self.save_button.set_visible(True)
+      self.update_button_visible()
       self.prep_next_transcode()
 #    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
 #      notes.append('Cast: %s' % self.last_known_player_state)
@@ -405,6 +407,7 @@ class Gnomecast(object):
       self.scrubber.set_sensitive(True)
     else:
       self.scrubber.set_sensitive(False)
+    self.update_button_visible()
 
 
   def build_gui(self):
@@ -440,9 +443,12 @@ class Gnomecast(object):
     
     # list of queued files
     self.files_store = Gtk.ListStore(str, str, int, str, str, int, str, object) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon, transcoder
+    self.files_store.connect("row-inserted", self.update_button_visible)
+    self.files_store.connect("row-deleted", self.update_button_visible)
     self.files_view = Gtk.TreeView(self.files_store)
     self.files_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
     self.files_view.set_headers_visible(False)
+    self.files_view.set_rules_hint(True)
     column = Gtk.TreeViewColumn("Name", Gtk.CellRendererText(), text=0)
     column.set_expand(True)
     self.files_view.append_column(column)
@@ -460,26 +466,30 @@ class Gnomecast(object):
     self.files_view.connect("row-activated", self.on_files_view_row_activated)
     
 
+    # contains the files list and the buttons to add/del
+    self.hbox = hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    vbox.pack_start(hbox, False, False, 0)
+
     self.scrolled_window = Gtk.ScrolledWindow()
     self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     self.scrolled_window.add(self.files_view)
-    vbox.pack_start(self.scrolled_window, True, True, 0)
+    hbox.pack_start(self.scrolled_window, True, True, 0)
 
-    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    vbox.pack_start(hbox, False, False, 0)
-    self.file_button = Gtk.Button("   Add one or more audio or video files...", image=Gtk.Image(stock=Gtk.STOCK_ADD))
+    self.btn_vbox = btn_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    hbox.pack_start(btn_vbox, True, True, 0)
+    self.file_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_ADD))
+    self.file_button.set_tooltip_text('Add one or more audio or video files...')
     self.file_button.set_always_show_image(True)
     self.file_button.connect("clicked", self.on_file_clicked)
-    hbox.pack_start(self.file_button, True, True, 0)
+    btn_vbox.pack_start(self.file_button, True, True, 0)
     self.remove_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_REMOVE))
     self.remove_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.remove_button.connect("clicked", self.remove_files)
-    hbox.pack_start(self.remove_button, False, False, 0)
-    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
-    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
-    self.save_button.connect("clicked", self.save_transcoded_file)
-    hbox.pack_start(self.save_button, False, False, 0)
+    self.remove_button.set_sensitive(False)
+    btn_vbox.pack_start(self.remove_button, False, False, 0)
 
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    vbox.pack_start(hbox, False, False, 0)
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
     subtitle_store.append(["No subtitles.", -1, None])
     subtitle_store.append(["Add subtitle file...", -2, None])
@@ -490,7 +500,11 @@ class Gnomecast(object):
     self.subtitle_combo.pack_start(renderer_text, True)
     self.subtitle_combo.add_attribute(renderer_text, "text", 0)
     self.subtitle_combo.set_active(0)
-    vbox.pack_start(self.subtitle_combo, False, False, 0)
+    hbox.pack_start(self.subtitle_combo, True, True, 0)
+    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
+    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
+    self.save_button.connect("clicked", self.save_transcoded_file)
+    hbox.pack_start(self.save_button, False, False, 0)
     
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
@@ -538,22 +552,29 @@ class Gnomecast(object):
     win.connect("key_press_event", self.on_key_press)
     win.show_all()
 
-    self.scrolled_window.set_visible(False)
-
-    self.save_button.set_visible(False)
+    self.update_button_visible()
 
     win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+  
+  def update_button_visible(self, x=None, y=None, z=None):
+    print('update_button_visible')
+    count = len(self.files_store)
+    self.scrolled_window.set_visible(count)
+    self.remove_button.set_visible(count)
+    self.file_button.set_label('' if count else 'Add one or more audio or video files...')
+    self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
+    print('xxx', self.transcoder, self.transcoder.show_save_button if self.transcoder else 'N/A')
+    self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
     self.seeking = True
   
   def on_files_view_selection_changed(self, selection):
-    model, treeiter = selection.get_selected()
-    if treeiter is not None:
-        print("You selected", model[treeiter])
+    model, treeiter = selection.get_selected_rows()
+    self.remove_button.set_sensitive(bool(treeiter))
    
   def remove_files(self, w):
     store, paths = self.files_view.get_selection().get_selected_rows()
@@ -622,9 +643,10 @@ class Gnomecast(object):
     os.remove(self.fn)
     self.transcoder.source_fn = new_fn
     self.transcoder.transcode = False
+    self.transcoder.show_save_button = False
     self.fn = new_fn
     def f():
-      self.save_button.set_visible(False)
+      self.update_button_visible()
       self.update_status()
     GLib.idle_add(f)
 
@@ -842,16 +864,16 @@ class Gnomecast(object):
           if thumbnail_fn:
             self.thumbnail_image.set_from_file(thumbnail_fn)
             self.win.resize(1,1)
-          row[6] = 'media-playback-start'
+          row[6] = 'video-x-generic'
           self.duration = row[2]
         else:
           row[6] = None
       threading.Thread(target=self.update_transcoders).start()
       threading.Thread(target=self.update_subtitles).start()
+      self.update_button_visible()
     GLib.idle_add(f)
   
   def update_transcoders(self):
-    self.save_button.set_visible(False)
     if self.cast and self.fn:
       transcoder = None
       for row in self.files_store:
