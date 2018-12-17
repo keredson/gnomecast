@@ -87,7 +87,7 @@ AUDIO_EXTS = ('aac','mp3','wav')
 
 class Transcoder(object):
 
-  def __init__(self, cast, fn, done_callback, prev_transcoder):
+  def __init__(self, cast, fn, done_callback, prev_transcoder, force_audio=False, force_video=False):
     self.cast = cast
     self.source_fn = fn
     self.p = None
@@ -111,9 +111,10 @@ class Transcoder(object):
           video_codec = line.split()[3]
         elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line or 'mp3' in line):
           transcode_audio = False
+      transcode_audio |= force_audio
       print('Transcoder', fn, container, video_codec, transcode_audio)
       transcode_container = container not in ('mp4','aac','mp3','wav')
-      self.transcode_video = not self.can_play_video_codec(video_codec)
+      self.transcode_video = force_video or not self.can_play_video_codec(video_codec)
       self.transcode_audio = transcode_audio
       self.transcode = transcode_container or self.transcode_video or self.transcode_audio
       self.trans_fn = None
@@ -410,7 +411,7 @@ class Gnomecast(object):
 
 
   def build_gui(self):
-    self.win = win = Gtk.Window(title='Gnomecast v%s' % __version__)
+    self.win = win = Gtk.ApplicationWindow(title='Gnomecast v%s' % __version__)
     win.set_border_width(0)
     win.set_icon(self.get_logo_pixbuf(color='#000000'))
     self.cast_store = cast_store = Gtk.ListStore(object, str)
@@ -487,7 +488,7 @@ class Gnomecast(object):
     self.remove_button.set_sensitive(False)
     btn_vbox.pack_start(self.remove_button, False, False, 0)
 
-    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    self.file_detail_row = hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     vbox.pack_start(hbox, False, False, 0)
     self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
     subtitle_store.append(["No subtitles.", -1, None])
@@ -504,6 +505,22 @@ class Gnomecast(object):
     self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.save_button.connect("clicked", self.save_transcoded_file)
     hbox.pack_start(self.save_button, False, False, 0)
+
+    # force transcode button
+    self.transcode_button = Gtk.MenuButton()
+    self.transcode_button.set_tooltip_text("Force transcode (if your Chromecast won't play a file)...")
+    menumodel = Gio.Menu()
+    menumodel.append("Transcode Audio Only (fast)", 'win.transcode-audio')
+    menumodel.append("Transcode Audio and Video (slow)", "win.transcode-all")
+    self.transcode_button.set_menu_model(menumodel)
+    self.transcode_button.set_image(Gtk.Image(stock=Gtk.STOCK_CONVERT))
+    action = Gio.SimpleAction.new("transcode-audio", None)
+    action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=False))
+    self.win.add_action(action)
+    action = Gio.SimpleAction.new("transcode-all", None)
+    action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=True))
+    self.win.add_action(action)
+    hbox.pack_start(self.transcode_button, False, False, 0)
     
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
@@ -556,16 +573,24 @@ class Gnomecast(object):
     win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+    
+  def force_transcode(self, audio=True, video=True):
+    for row in self.files_store:
+      if row[1]!=self.fn: continue
+      transcoder = row[7]
+      transcoder.destroy()
+      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
+      row[7] = self.transcoder
   
   def update_button_visible(self, x=None, y=None, z=None):
     print('update_button_visible')
     count = len(self.files_store)
     self.scrolled_window.set_visible(count)
     self.remove_button.set_visible(count)
-    self.file_button.set_label('' if count else 'Add one or more audio or video files...')
+    self.file_button.set_label('' if count else '  Add one or more audio or video files...')
     self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
-    print('xxx', self.transcoder, self.transcoder.show_save_button if self.transcoder else 'N/A')
     self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
+    self.file_detail_row.set_visible(bool(self.fn and self.cast))
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
@@ -856,6 +881,7 @@ class Gnomecast(object):
       for row in self.files_store:
           row[6] = None
       self.win.resize(1,1)
+      self.update_button_visible()
     GLib.idle_add(f)
   
   def select_file(self, fn):
