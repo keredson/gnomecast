@@ -42,6 +42,19 @@ $ python3 -m gnomecast
 
 *Please report bugs, including video files that don't work for you!*
 
+My File Won't Play!!!
+---------------------
+
+Chromecasts are picky, and the built in media receiver doesn't give any feedback regarding why it won't play something.  (It just flashes and quits on the main TV.)  So while this program can detect and auto-transcode files using unsupported codecs, that doesn't cover everything.
+
+Usually I've found re-encoding a file will appease the Chromecast file format gods.  See:
+
+![image](https://user-images.githubusercontent.com/2049665/50061428-31270700-0155-11e9-9ff5-39075db0bcfd.png)
+
+I recommend transcoding just the audio first, as this is enough to fix most files in my experience, and it's ~20x faster than transcoding the video.
+
+If you think there's a bug beyond this, please open an issue (and link to the offending file if possible).
+
 
 Thanks To...
 ------------
