@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import traceback
+import urllib
 
 DEPS_MET = True
 try:
@@ -414,6 +415,9 @@ class Gnomecast(object):
     self.win = win = Gtk.ApplicationWindow(title='Gnomecast v%s' % __version__)
     win.set_border_width(0)
     win.set_icon(self.get_logo_pixbuf(color='#000000'))
+    enforce_target = Gtk.TargetEntry.new('text/plain', Gtk.TargetFlags(4), 129)
+    win.drag_dest_set(Gtk.DestDefaults.ALL, [enforce_target], Gdk.DragAction.COPY)
+    win.connect("drag-data-received", self.on_drag_data_received)
     self.cast_store = cast_store = Gtk.ListStore(object, str)
 
     vbox_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -573,6 +577,13 @@ class Gnomecast(object):
     win.resize(1,1)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+
+
+  def on_drag_data_received(self, widget, drag_context, x,y, data,info, time):
+    fn = data.get_text()
+    if fn.startswith('file://'):
+      fn = urllib.parse.unquote(fn[len('file://'):]).strip()
+      self.queue_files([fn])
     
   def force_transcode(self, audio=True, video=True):
     for row in self.files_store:
@@ -588,6 +599,7 @@ class Gnomecast(object):
     self.scrolled_window.set_visible(count)
     self.remove_button.set_visible(count)
     self.file_button.set_label('' if count else '  Add one or more audio or video files...')
+    self.file_button.get_child().set_padding(1,0,2,0) # w/ an empty label the + icon isn't quite centered
     self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
     self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
     self.file_detail_row.set_visible(bool(self.fn and self.cast))
