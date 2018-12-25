@@ -112,7 +112,7 @@ class Transcoder(object):
         line = line.strip()
         if line.startswith('Stream') and 'Video' in line and not video_codec:
           video_codec = line.split()[3]
-        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line or 'mp3' in line):
+        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line or 'aac (HE-AAC)' in line or 'mp3' in line):
           transcode_audio = False
       transcode_audio |= force_audio
       print('Transcoder', fn, container, video_codec, transcode_audio)
