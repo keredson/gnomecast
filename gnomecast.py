@@ -125,11 +125,11 @@ class Transcoder(object):
     self.progress_bytes = 0
     self.progress_seconds = 0
     self.done_callback = done_callback
-    print ('transcode, transcode_video, transcode_audio', self.transcode, self.transcode_video, self.transcode_audio)
+    print ('\nTranscode needed: %s\nTranscode video: %s\nTranscode audio: %s\n\n' % (self.transcode, self.transcode_video, self.transcode_audio))
     if self.transcode:
       self.done = False
-      dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
+      fd, self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_')
+      os.close(fd)
       os.remove(self.trans_fn)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a', 'mp3' if self.transcode_audio else 'copy'] + (['-b:a','256k'] if self.transcode_audio else []) + [self.trans_fn] # '-movflags', 'faststart'
@@ -195,7 +195,9 @@ class Transcoder(object):
     if self.p and self.p.poll() is None:
       self.p.terminate()
     if self.trans_fn and os.path.isfile(self.trans_fn):
-      os.remove(self.trans_fn)
+        with open(self.trans_fn, "w"):
+            print ("Will remove file %s" % self.trans_fn)
+        os.remove(self.trans_fn)
 
 def find_screensaver_dbus_iface(bus):
   """ Searches the DBus names for Screensaver and returns correct Interface"""
@@ -751,7 +753,9 @@ class Gnomecast(object):
     self.restore_screensaver()
     for row in self.files_store:
       if row[4] and os.path.isfile(row[4]):
-        os.remove(row[4])
+          with open (row[4], 'w'):
+              print('Will remove %s' % row[4])
+          os.remove(row[4])
     Gtk.main_quit()
 
   def forward_clicked(self, widget):
@@ -987,7 +991,8 @@ class Gnomecast(object):
     if container in ('aac','mp3','wav'):
       cmd = ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-']
     else:
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
+      fd, thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')
+      os.close(fd)
       os.remove(thumbnail_fn)
       cmd = ['ffmpeg', '-y', '-i', fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
     self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -1029,7 +1034,7 @@ class Gnomecast(object):
     print('subtitle_ids', subtitle_ids)
     new_subtitles = []
     for subtitle_id in subtitle_ids:
-      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
+      fd, srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')
       output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
       with open(srt_fn) as f:
         caps = f.read()
@@ -1038,6 +1043,7 @@ class Gnomecast(object):
       converter.read(caps, pycaption.detect_format(caps)())
       subtitles = converter.write(pycaption.WebVTTWriter())
       new_subtitles.append((subtitle_id, subtitles))
+      os.close(fd)
       os.remove(srt_fn)
     def f():
       self.subtitle_store.clear()
@@ -1123,7 +1129,6 @@ class Gnomecast(object):
       if tree_iter is not None:
           model = combo.get_model()
           text, position, subs = model[tree_iter]
-          print(text, position, subs)
           if position==-1: self.subtitles = None
           elif position==-2: self.on_new_subtitle_clicked()
           else:
