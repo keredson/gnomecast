@@ -4,6 +4,7 @@ import contextlib
 import io
 import mimetypes
 import os
+import platform
 import re
 import signal
 import socket
@@ -13,6 +14,8 @@ import tempfile
 import threading
 import time
 import traceback
+
+onWindows = platform.system() == 'Windows'
 
 DEPS_MET = True
 try:
@@ -209,7 +212,8 @@ def find_screensaver_dbus_iface(bus):
 class Gnomecast(object):
 
   def __init__(self):
-    self.ip = (([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [[(s.connect(("8.8.8.8", 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) + [None])[0]
+    self.ip = [(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]
+    print('Program detected the following LAN IP: ', self.ip)
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
       s.bind(('0.0.0.0', 0))
       self.port = s.getsockname()[1]
@@ -253,7 +257,10 @@ class Gnomecast(object):
     ffmpeg_available = True
     print('check_ffmpeg')
     try:
-      print(subprocess.check_output(['which', 'ffmpeg']))
+        if onWindows:
+            print(subprocess.check_output(['where', 'ffmpeg']))
+        else:
+            print(subprocess.check_output(['which', 'ffmpeg']))
     except Exception as e:
       print(e, e.output)
       ffmpeg_available = False
@@ -287,7 +294,11 @@ class Gnomecast(object):
       print('ranges', ranges)
       offset, end = ranges[0]
       self.transcoder.wait_for_byte(offset)
-      response = bottle.static_file(self.transcoder.fn, root='/')
+      
+      folderpath = os.path.dirname(self.transcoder.fn)
+      filename = self.transcoder.fn.split('\\')[-1]     
+      response = bottle.static_file(filename, root=folderpath)
+      
       if 'Last-Modified' in response.headers:
         del response.headers['Last-Modified']
       response.headers['Access-Control-Allow-Origin'] = '*'
@@ -300,6 +311,7 @@ class Gnomecast(object):
     from paste.translogger import TransLogger
     handler = TransLogger(app, setup_console_handler=True)
     httpserver.serve(handler, host=self.ip, port=str(self.port), daemon_threads=True)
+    print('Http server started at %s:%s' % (self.ip, self.port))
 
   def update_status(self, did_transcode=False):
     if did_transcode:
@@ -572,7 +584,9 @@ class Gnomecast(object):
 
     win.resize(1,1)
 
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+    # Not working on Windows
+    if not onWindows:
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
     
   def force_transcode(self, audio=True, video=True):
     for row in self.files_store:
@@ -794,11 +808,12 @@ class Gnomecast(object):
       if os.path.isdir(downloads_dir):
         dialog.set_current_folder(downloads_dir)
 
-      filter_py = Gtk.FileFilter()
-      filter_py.set_name("Videos")
-      filter_py.add_mime_type("video/*")
-      filter_py.add_mime_type("audio/*")
-      dialog.add_filter(filter_py)
+      if not onWindows:
+        filter_py = Gtk.FileFilter()
+        filter_py.set_name("Videos")
+        filter_py.add_mime_type("video/*")
+        filter_py.add_mime_type("audio/*")
+        dialog.add_filter(filter_py)
         
       response = dialog.run()
       if response == Gtk.ResponseType.OK:

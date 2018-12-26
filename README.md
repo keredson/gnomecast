@@ -89,3 +89,16 @@ We write the entire transcoded file to your `/tmp` directory in order to make sc
 Subtitles
 ---------
 Chromecast only supports a handful of subtitle formats, `.srt` not included.  But it does support [WebVTT](https://w3c.github.io/webvtt/).  So we extract whatever subtitles are in your video, convert them to WebVTT, and then reattach them to the video through Chomecast's API.
+
+Running on Windows
+------------------
+
+In order to run on Windows you will need to install the PyGObject for Windows from here:  https://sourceforge.net/projects/pygobjectwin32/files/
+
+First get Python 3.4.4 - later versions are not supported by PyGOobject for Windows.
+
+Start the installation and point the installer to the Python 3.4 folder.
+
+Select the following libraries to be installed: Dbus-GLib, GDA, Gdk-Pixbuf, GTK+, and GLib
+
+After this, you should install gnomecast's dependencies and everything should be ready to go.
