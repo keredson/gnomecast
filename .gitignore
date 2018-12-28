@@ -99,3 +99,12 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# Exclude Visual Studio solution files
+*.sdf
+*.VC.opendb
+*.VC.db
+*.opensdf
+*.suo
+*.user
+*.orig
