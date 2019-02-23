@@ -11,6 +11,12 @@ This is a native Linux GUI for casting local files to Chromecast devices.  It su
 - Fast scrubbing (waiting 20s for buffering to skip 30s ahead is wrong!)
 - 4K videos on the Chromecast Ultra!
 
+What's New
+----------
+
+* `1.7`: Drag and drop files into the main UI.
+* `1.6`: Mutiple file / queuing support.
+
 Install
 -------
 Please run:
