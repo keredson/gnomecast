@@ -59,7 +59,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.7.0'
+__version__ = '1.7.1'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -147,7 +147,7 @@ class Transcoder(object):
     return self.trans_fn if self.transcode else self.source_fn
     
   def can_play_video_codec(self, video_codec):
-    if self.cast.device.model_name=='Chromecast Ultra':
+    if self.cast.device.model_name=='Chromecast Ultra' or self.cast.device.manufacturer=='VIZIO':
       return video_codec in ('h264','h265','hevc')
     else:
       return video_codec in ('h264',)
