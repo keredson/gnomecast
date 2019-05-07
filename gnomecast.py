@@ -1,10 +1,5 @@
-import base64
-import codecs
 import contextlib
-import io
-import mimetypes
 import os
-import re
 import signal
 import socket
 import subprocess
@@ -15,12 +10,14 @@ import time
 import traceback
 import urllib
 
+from transcode import Transcoder, parse_ffmpeg_time, AUDIO_EXTS
+
 DEPS_MET = True
 try:
   import pychromecast
   import bottle
   import html5lib.treebuilders
-  
+
   # hack fixing pycaption needing an old version of html5lib
   if not hasattr(html5lib.treebuilders, '_base'):
     html5lib.treebuilders._base = html5lib.treebuilders.base
@@ -38,7 +35,7 @@ try:
 except Exception as e:
   print(e)
 
-  
+
 try:
   import gi
   gi.require_version('Gtk', '3.0')
@@ -84,116 +81,7 @@ def throttle(seconds=2):
   return decorator
 
 
-AUDIO_EXTS = ('aac','mp3','wav')
 
-class Transcoder(object):
-
-  def __init__(self, cast, fn, done_callback, prev_transcoder, force_audio=False, force_video=False):
-    self.cast = cast
-    self.source_fn = fn
-    self.p = None
-    self.show_save_button = False
-    
-    if prev_transcoder and prev_transcoder.source_fn == self.source_fn:
-      self.transcode_video = prev_transcoder.transcode_video
-      self.transcode_audio = prev_transcoder.transcode_audio
-      self.transcode = False
-      self.trans_fn = prev_transcoder.trans_fn
-    else:
-      if prev_transcoder:
-        prev_transcoder.destroy()
-      output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'], stderr=subprocess.STDOUT).decode().split('\n')
-      container = fn.lower().split(".")[-1]
-      video_codec = None
-      transcode_audio = container not in AUDIO_EXTS
-      for line in output:
-        line = line.strip()
-        if line.startswith('Stream') and 'Video' in line and not video_codec:
-          video_codec = line.split()[3]
-        elif line.startswith('Stream') and 'Audio' in line and ('aac (LC)' in line or 'aac (HE)' in line or 'mp3' in line):
-          transcode_audio = False
-      transcode_audio |= force_audio
-      print('Transcoder', fn, container, video_codec, transcode_audio)
-      transcode_container = container not in ('mp4','aac','mp3','wav')
-      self.transcode_video = force_video or not self.can_play_video_codec(video_codec)
-      self.transcode_audio = transcode_audio
-      self.transcode = transcode_container or self.transcode_video or self.transcode_audio
-      self.trans_fn = None
-
-    self.progress_bytes = 0
-    self.progress_seconds = 0
-    self.done_callback = done_callback
-    print ('transcode, transcode_video, transcode_audio', self.transcode, self.transcode_video, self.transcode_audio)
-    if self.transcode:
-      self.done = False
-      dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
-      os.remove(self.trans_fn)
-      # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
-      args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a', 'mp3' if self.transcode_audio else 'copy'] + (['-b:a','256k'] if self.transcode_audio else []) + [self.trans_fn] # '-movflags', 'faststart'
-      # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
-      # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
-      print(args)
-      self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-      t = threading.Thread(target=self.monitor)
-      t.daemon = True
-      t.start()
-    else:
-      self.done = True
-      self.done_callback()
-  
-  @property
-  def fn(self):
-    return self.trans_fn if self.transcode else self.source_fn
-    
-  def can_play_video_codec(self, video_codec):
-    if self.cast.device.model_name=='Chromecast Ultra' or self.cast.device.manufacturer=='VIZIO':
-      return video_codec in ('h264','h265','hevc')
-    else:
-      return video_codec in ('h264',)
-    
-  def wait_for_byte(self, offset, buffer=128*1024*1024):
-    if self.done: return
-    if self.source_fn.lower().split(".")[-1]=='mp4':
-      while offset > self.progress_bytes + buffer:
-        print('waiting for', offset, 'at', self.progress_bytes + buffer)
-        time.sleep(2)
-    else:
-      while not self.done:
-        print('waiting for transcode to finish')
-        time.sleep(2)
-    print('done waiting')
-  
-  def monitor(self):
-    line = b''
-    r = re.compile(r'=\s+')
-    while True:
-      byte = self.p.stdout.read(1)
-      if byte == b'' and self.p.poll() != None:
-        break
-      if byte != b'':
-        line += byte
-        if byte == b'\r':
-          # frame=92578 fps=3937 q=-1.0 size= 1142542kB time=01:04:21.14 bitrate=2424.1kbits/s speed= 164x 
-          line = line.decode()
-          line = r.sub('=', line)
-          items = [s.split('=') for s in line.split()]
-          d = dict([x for x in items if len(x)==2])
-          print(d)
-          self.progress_bytes = int(d.get('size','0kb')[:-2])*1024
-          self.progress_seconds = parse_ffmpeg_time(d.get('time','00:00:00'))
-          line = b''
-    self.p.stdout.close()
-    self.done = True
-    self.show_save_button = True
-    self.done_callback(did_transcode=True)
-  
-  def destroy(self):
-    # self.cast.media_controller.stop()
-    if self.p and self.p.poll() is None:
-      self.p.terminate()
-    if self.trans_fn and os.path.isfile(self.trans_fn):
-      os.remove(self.trans_fn)
 
 def find_screensaver_dbus_iface(bus):
   """ Searches the DBus names for Screensaver and returns correct Interface"""
@@ -248,7 +136,7 @@ class Gnomecast(object):
     if fn and subtitles:
       self.autoplay = True
     Gtk.main()
-    
+
   def check_ffmpeg(self):
     time.sleep(1)
     ffmpeg_available = True
@@ -267,7 +155,7 @@ class Gnomecast(object):
         # TODO: there's a weird pause here closing the dialog.  why?
         sys.exit(1)
       GLib.idle_add(f)
-    
+
   def start_server(self):
     app = self.app
 
@@ -280,7 +168,7 @@ class Gnomecast(object):
       response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
       response.headers['Content-Type'] = 'text/vtt'
       return self.subtitles
-    
+
     @app.get('/media/<id>.<ext>')
     def video(id, ext):
       print(list(bottle.request.headers.items()))
@@ -319,7 +207,7 @@ class Gnomecast(object):
             else:
               row[5] = transcoder.progress_seconds*100 // duration
     GLib.idle_add(f)
-    
+
   def monitor_cast(self):
     while True:
       time.sleep(1)
@@ -356,7 +244,7 @@ class Gnomecast(object):
     self.cast_store.append([None, "Searching local network - please wait..."])
     self.cast_combo.set_active(0)
     threading.Thread(target=self.load_casts, kwargs={'device':device}).start()
-    
+
   def inhibit_screensaver(self):
     if not self.saver_interface or self.inhibit_screensaver_cookie: return
     self.inhibit_screensaver_cookie = self.saver_interface.Inhibit("Gnomecast", "Player is playing...")
@@ -394,7 +282,7 @@ class Gnomecast(object):
       else:
         self.cast_combo.set_active(2 if len(chromecasts) == 1 else 0)
     GLib.idle_add(f)
-  
+
   def update_media_button_states(self):
     mc = self.cast.media_controller if self.cast else None
     self.play_button.set_sensitive(bool(self.transcoder and self.cast and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED','IDLE','UNKNOWN') and self.fn))
@@ -422,7 +310,7 @@ class Gnomecast(object):
 
     vbox_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-    
+
     self.thumbnail_image = Gtk.Image()
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     vbox_outer.pack_start(self.thumbnail_image, True, False, 0)
@@ -444,7 +332,7 @@ class Gnomecast(object):
     hbox.pack_start(refresh_button, False, False, 0)
 
     win.add(vbox_outer)
-    
+
     # list of queued files
     self.files_store = Gtk.ListStore(str, str, int, str, str, int, str, object) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon, transcoder
     self.files_store.connect("row-inserted", self.update_button_visible)
@@ -468,7 +356,7 @@ class Gnomecast(object):
     select = self.files_view.get_selection()
     select.connect("changed", self.on_files_view_selection_changed)
     self.files_view.connect("row-activated", self.on_files_view_row_activated)
-    
+
 
     # contains the files list and the buttons to add/del
     self.hbox = hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -525,7 +413,7 @@ class Gnomecast(object):
     action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=True))
     self.win.add_action(action)
     hbox.pack_start(self.transcode_button, False, False, 0)
-    
+
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
     self.scrubber.set_digits(0)
@@ -565,7 +453,7 @@ class Gnomecast(object):
     self.volume_button.set_sensitive(False)
     hbox.pack_start(self.volume_button, True, False, 0)
     vbox.pack_start(hbox, False, False, 0)
-    
+
     cast_combo.connect("changed", self.on_cast_combo_changed)
 
     win.connect("delete-event", self.quit)
@@ -584,7 +472,7 @@ class Gnomecast(object):
     if fn.startswith('file://'):
       fn = urllib.parse.unquote(fn[len('file://'):]).strip()
       self.queue_files([fn])
-    
+
   def force_transcode(self, audio=True, video=True):
     for row in self.files_store:
       if row[1]!=self.fn: continue
@@ -592,7 +480,7 @@ class Gnomecast(object):
       transcoder.destroy()
       self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
       row[7] = self.transcoder
-  
+
   def update_button_visible(self, x=None, y=None, z=None):
     print('update_button_visible')
     count = len(self.files_store)
@@ -607,11 +495,11 @@ class Gnomecast(object):
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
     self.seeking = True
-  
+
   def on_files_view_selection_changed(self, selection):
     model, treeiter = selection.get_selected_rows()
     self.remove_button.set_sensitive(bool(treeiter))
-   
+
   def remove_files(self, w):
     store, paths = self.files_view.get_selection().get_selected_rows()
     for path in reversed(paths):
@@ -624,8 +512,8 @@ class Gnomecast(object):
       store.remove(iterx)
       if self.fn == fn:
         self.unselect_file()
-      
-        
+
+
   def on_files_view_row_activated(self, widget, row, col):
     model = widget.get_model()
     print('double-clicked', model[row][:])
@@ -653,7 +541,7 @@ class Gnomecast(object):
 
 
     return True
-          
+
   def queue_files(self, files):
     existing_files = set([row[1] for row in self.files_store])
     files = [f for f in files if f not in existing_files]
@@ -676,15 +564,15 @@ class Gnomecast(object):
     height += self.file_view_column_renderer.get_padding().ypad*2
     height += 2 # measured - row lines?
     self.scrolled_window.set_min_content_height(height*min(len(self.files_store),6))
-    
-  
+
+
   @throttle(seconds=1)
   def volume_moved(self, button, volume):
     if self.last_known_volume_level != volume:
       self.last_known_volume_level = volume
       self.cast.set_volume(volume)
       print('setting volume', volume)
-      
+
   def save_transcoded_file(self, x):
     print('save_transcoded_file')
     if not self.transcoder or not self.transcoder.transcode:
@@ -723,12 +611,12 @@ class Gnomecast(object):
       return '%im %is' % (minutes, seconds)
     else:
       return '%is' % (seconds)
-    
+
 
   def stop_clicked(self, widget):
     if not self.cast: return
     self.cast.media_controller.stop()
-    
+
   def get_logo_pixbuf(self, width=200, color=None):
     svg = LOGO_SVG
     if color:
@@ -738,7 +626,7 @@ class Gnomecast(object):
     pixbuf = GdkPixbuf.Pixbuf.new_from_stream(f, None)
     return pixbuf
 
-  
+
   def quit(self, a=0, b=0):
     for row in self.files_store:
       transcoder = row[7]
@@ -754,10 +642,10 @@ class Gnomecast(object):
 
   def forward_clicked(self, widget):
     self.seek_delta(30)
-    
+
   def rewind_clicked(self, widget):
     self.seek_delta(-10)
-    
+
   def seek_delta(self, delta):
     seconds = self.cast.media_controller.status.current_time + time.time() - self.last_time_current_time + delta
     self.last_time_current_time = time.time()
@@ -765,14 +653,14 @@ class Gnomecast(object):
     self.scrubber_adj.set_value(seconds)
     self.seeking = True
     self.cast.media_controller.seek(seconds)
-    
+
   def play_clicked(self, widget):
     if not self.cast:
       print('no cast selected')
       return
     cast = self.cast
     mc = cast.media_controller
-    
+
     print('mc.status.player_state', mc.status.player_state, self.fn, hash(self.fn))
     if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != self.fn:
       self.last_fn_played = self.fn
@@ -811,7 +699,7 @@ class Gnomecast(object):
       filter_py.add_mime_type("video/*")
       filter_py.add_mime_type("audio/*")
       dialog.add_filter(filter_py)
-        
+
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
           print("Open clicked")
@@ -822,7 +710,7 @@ class Gnomecast(object):
           print("Cancel clicked")
 
       dialog.destroy()
-      
+
   def on_new_subtitle_clicked(self):
       dialog = Gtk.FileChooserDialog("Please choose a subtitle file...", self.win,
           Gtk.FileChooserAction.OPEN,
@@ -831,13 +719,13 @@ class Gnomecast(object):
 
       if self.fn:
         dialog.set_current_folder(os.path.dirname(self.fn))
-      
+
       filter_py = Gtk.FileFilter()
       filter_py.set_name("Subtitles")
       filter_py.add_pattern("*.srt")
       filter_py.add_pattern("*.vtt")
       dialog.add_filter(filter_py)
-        
+
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
           print("Open clicked")
@@ -848,7 +736,7 @@ class Gnomecast(object):
           self.subtitle_combo.set_active(0)
 
       dialog.destroy()
-      
+
   def select_subtitles_file(self, fn):
     if not os.path.isfile(fn):
       def f():
@@ -877,7 +765,7 @@ class Gnomecast(object):
     pos = len(self.subtitle_store)
     self.subtitle_store.append([display_name, pos-2, self.subtitles])
     self.subtitle_combo.set_active(pos)
-    
+
   def unselect_file(self):
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = None
@@ -895,7 +783,7 @@ class Gnomecast(object):
       self.win.resize(1,1)
       self.update_button_visible()
     GLib.idle_add(f)
-  
+
   def select_file(self, fn):
     self.unselect_file()
     if not os.path.isfile(fn):
@@ -932,7 +820,7 @@ class Gnomecast(object):
       self.update_button_visible()
       self.update_media_button_states()
     GLib.idle_add(f)
-  
+
   def update_transcoders(self):
     if self.cast and self.fn:
       transcoder = None
@@ -952,7 +840,7 @@ class Gnomecast(object):
           transcoder.destroy()
           row[7] = None
     GLib.idle_add(self.update_media_button_states)
-  
+
   def check_for_next_in_queue(self):
     next = False
     for row in self.files_store:
@@ -964,7 +852,7 @@ class Gnomecast(object):
         next = False
       if self.cast and self.fn and self.fn == fn:
         next = True
-  
+
   def prep_next_transcode(self):
     transcode_next = False
     for row in self.files_store:
@@ -977,7 +865,7 @@ class Gnomecast(object):
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
         transcode_next = True
-        
+
   def gen_thumbnail(self, fn):
     container = fn.lower().split(".")[-1]
     thumbnail_fn = None
@@ -1050,7 +938,7 @@ class Gnomecast(object):
     sexts = ['vtt', 'srt']
     for sext in sexts:
       if os.path.isfile(self.fn[:-len(ext)] + sext):
-        self.select_subtitles_file(self.fn[:-len(ext)] + sext) 
+        self.select_subtitles_file(self.fn[:-len(ext)] + sext)
         break
 
   def on_key_press(self, widget, event, user_data=None):
@@ -1060,7 +948,7 @@ class Gnomecast(object):
       self.quit()
       return True
     return False
-    
+
   def select_cast(self, cast):
     self.cast = cast
     if cast:
@@ -1070,7 +958,7 @@ class Gnomecast(object):
     self.last_known_player_state = None
     self.update_media_button_states()
     threading.Thread(target=self.update_transcoders).start()
-    
+
 
   def get_nonlocal_cast(self):
     dialogWindow = Gtk.MessageDialog(self.win,
@@ -1088,7 +976,7 @@ class Gnomecast(object):
 
     dialogWindow.show_all()
     response = dialogWindow.run()
-    text = userEntry.get_text() 
+    text = userEntry.get_text()
     dialogWindow.destroy()
     if (response == Gtk.ResponseType.OK) and (text != ''):
       print(text)
@@ -1101,7 +989,7 @@ class Gnomecast(object):
         dialog.format_secondary_text("The Chromecast '%s' wasn't found." % text)
         dialog.run()
         dialog.destroy()
-        
+
   def on_cast_combo_changed(self, combo):
       tree_iter = combo.get_active_iter()
       if tree_iter is not None:
@@ -1134,11 +1022,8 @@ class Gnomecast(object):
       else:
           entry = combo.get_child()
 
-def parse_ffmpeg_time(time_s):
-  hours, minutes, seconds = (float(s) for s in time_s.split(':'))
-  return hours*60*60 + minutes*60 + seconds
-  
-  
+
+
 # this is embedded here because i gave up trying to get pip to handle a non-python file
 LOGO_SVG = '''<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
@@ -1284,5 +1169,5 @@ def main():
 
 if DEPS_MET and __name__=='__main__':
   main()
-  
+
 
