@@ -171,11 +171,6 @@ class Gnomecast(object):
 
     @app.get('/media/<id>/<fn>')
     def video(id, fn):
-      print(list(bottle.request.headers.items()))
-#      ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
-#      print('ranges', ranges)
-#      offset, end = ranges[0]
-#      self.transcoder.wait_for_byte(offset)
       if fn.endswith('.ts') or fn.endswith('.m3u8'):
         response = bottle.static_file(fn, root=self.transcoder.trans_dir)
       else:
@@ -192,24 +187,6 @@ class Gnomecast(object):
     from paste.translogger import TransLogger
     handler = TransLogger(app, setup_console_handler=True)
     httpserver.serve(handler, host=self.ip, port=str(self.port), daemon_threads=True)
-
-  def update_status(self, did_transcode=False):
-    if did_transcode:
-      self.update_button_visible()
-      self.prep_next_transcode()
-#    if self.last_known_player_state and self.last_known_player_state!='UNKNOWN':
-#      notes.append('Cast: %s' % self.last_known_player_state)
-    def f():
-      for row in self.files_store:
-        duration = row[2]
-        transcoder = row[7]
-        if transcoder:
-          if duration:
-            if transcoder.done:
-              row[5] = 100
-            else:
-              row[5] = transcoder.progress_seconds*100 // duration
-    GLib.idle_add(f)
 
   def monitor_cast(self):
     while True:
@@ -230,11 +207,6 @@ class Gnomecast(object):
         self.last_known_player_state = mc.status.player_state
         def f():
           self.update_media_button_states()
-          self.update_status()
-        GLib.idle_add(f)
-      elif self.transcoder and not self.transcoder.done:
-        def f():
-          self.update_status()
         GLib.idle_add(f)
       if self.last_known_current_time != mc.status.current_time:
         self.last_known_current_time = mc.status.current_time
@@ -350,8 +322,6 @@ class Gnomecast(object):
     self.file_view_column_renderer = r = Gtk.CellRendererText()
     r.props.xalign = 1.0
     self.files_view.append_column(Gtk.TreeViewColumn("Duration", r, text=3))
-    self.files_view_progress_column = column_progress = Gtk.TreeViewColumn("Progress", Gtk.CellRendererProgress(), value=5)
-    self.files_view.append_column(column_progress)
 
     column_pixbuf = Gtk.TreeViewColumn("Playing", Gtk.CellRendererPixbuf(), icon_name=6)
     self.files_view.append_column(column_pixbuf)
@@ -396,10 +366,6 @@ class Gnomecast(object):
     self.subtitle_combo.add_attribute(renderer_text, "text", 0)
     self.subtitle_combo.set_active(0)
     hbox.pack_start(self.subtitle_combo, True, True, 0)
-    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
-    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
-    self.save_button.connect("clicked", self.save_transcoded_file)
-    hbox.pack_start(self.save_button, False, False, 0)
 
     # force transcode button
     self.transcode_button = Gtk.MenuButton()
@@ -481,7 +447,7 @@ class Gnomecast(object):
       if row[1]!=self.fn: continue
       transcoder = row[7]
       transcoder.destroy()
-      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
+      self.transcoder = Transcoder(self.cast, self.fn, force_audio=audio, force_video=video)
       row[7] = self.transcoder
 
   def update_button_visible(self, x=None, y=None, z=None):
@@ -492,7 +458,6 @@ class Gnomecast(object):
     self.file_button.set_label('' if count else '  Add one or more audio or video files...')
     self.file_button.get_child().set_padding(1,0,2,0) # w/ an empty label the + icon isn't quite centered
     self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
-    self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
     self.file_detail_row.set_visible(bool(self.fn and self.cast))
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
@@ -554,6 +519,7 @@ class Gnomecast(object):
       if len(display) > MAX_LEN:
         display = display[:MAX_LEN-10] + '...' + display[-10:]
       self.files_store.append([display, fn, None, '...', None, None, None, None])
+
       threading.Thread(target=self.get_info, args=[fn]).start()
     def gen_thumbnails():
       for fn in files:
@@ -563,10 +529,10 @@ class Gnomecast(object):
     if len(files) and self.fn is None:
       self.select_file(files[0])
     path = Gtk.TreePath().new_first()
-    _1, _2, width, height = self.files_view_progress_column.cell_get_size()
-    height += self.file_view_column_renderer.get_padding().ypad*2
-    height += 2 # measured - row lines?
-    self.scrolled_window.set_min_content_height(height*min(len(self.files_store),6))
+#    _1, _2, width, height = self.files_view_progress_column.cell_get_size()
+#    height += self.file_view_column_renderer.get_padding().ypad*2
+#    height += 2 # measured - row lines?
+#    self.scrolled_window.set_min_content_height(height*min(len(self.files_store),6))
 
 
   @throttle(seconds=1)
@@ -575,27 +541,6 @@ class Gnomecast(object):
       self.last_known_volume_level = volume
       self.cast.set_volume(volume)
       print('setting volume', volume)
-
-  def save_transcoded_file(self, x):
-    print('save_transcoded_file')
-    if not self.transcoder or not self.transcoder.transcode:
-      return
-    fn = self.transcoder.fn
-    display_name = os.path.basename(self.fn)
-    path = os.path.dirname(self.fn)
-    display_name = os.path.splitext(display_name)[0]+'.mp4'
-    new_fn = os.path.join(path, display_name)
-    print(fn, '=>', new_fn)
-    os.rename(fn, new_fn)
-    os.remove(self.fn)
-    self.transcoder.source_fn = new_fn
-    self.transcoder.transcode = False
-    self.transcoder.show_save_button = False
-    self.fn = new_fn
-    def f():
-      self.update_button_visible()
-      self.update_status()
-    GLib.idle_add(f)
 
   @throttle()
   def scrubber_moved(self, scale, scroll_type, seconds):
@@ -679,10 +624,10 @@ class Gnomecast(object):
       ext = fn.split('.')[-1]
       ext = ''.join(ch for ch in ext if ch.isalnum()).lower()
       basename = os.path.basename(fn)
+      self.transcoder.start()
       mc.play_media('http://%s:%s/media/%s/%s' % (self.ip, self.port, hash(fn), basename), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
       print(cast.status)
       print(mc.status)
-      self.prep_next_transcode()
     elif mc.status.player_state=='PLAYING':
       mc.pause()
     elif mc.status.player_state=='PAUSED':
@@ -833,7 +778,8 @@ class Gnomecast(object):
         if row[1]!=self.fn: continue
         transcoder = row[7]
         if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn:
-          self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+          if transcoder: transcoder.destroy()
+          self.transcoder = Transcoder(self.cast, self.fn)
           row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
@@ -858,19 +804,6 @@ class Gnomecast(object):
       if self.cast and self.fn and self.fn == fn:
         next = True
 
-  def prep_next_transcode(self):
-    transcode_next = False
-    for row in self.files_store:
-      fn = row[1]
-      transcoder = row[7]
-      if transcode_next and not transcoder:
-        print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
-        row[7] = transcoder
-        transcode_next = False
-      if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
-        transcode_next = True
-
   def gen_thumbnail(self, fn):
     container = fn.lower().split(".")[-1]
     thumbnail_fn = None
@@ -889,7 +822,6 @@ class Gnomecast(object):
       if self.fn == fn and thumbnail_fn:
         self.thumbnail_image.set_from_file(thumbnail_fn)
         self.win.resize(1,1)
-      self.update_status()
     GLib.idle_add(f)
 
   def get_info(self, fn):
