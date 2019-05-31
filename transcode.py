@@ -65,10 +65,11 @@ class Transcoder(object):
 
       with open(self.trans_fn,'w') as f:
         f.write('#EXTM3U\n')
-        f.write('#EXT-X-TARGETDURATION:600\n')
+        f.write('#EXT-X-PLAYLIST-TYPE:EVENT\n')
+        f.write('#EXT-X-TARGETDURATION:10\n')
         f.write('#EXT-X-ALLOW-CACHE:YES\n')
         f.write('#EXT-X-VERSION:3\n')
-        for i in range(1,30):
+        for i in range(100):
           f.write('#EXTINF:10.000,\noutput_%04d.ts\n' % i)
 
       print('self.trans_dir', self.trans_dir)
