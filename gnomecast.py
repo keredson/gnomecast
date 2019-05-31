@@ -169,14 +169,17 @@ class Gnomecast(object):
       response.headers['Content-Type'] = 'text/vtt'
       return self.subtitles
 
-    @app.get('/media/<id>.<ext>')
-    def video(id, ext):
+    @app.get('/media/<id>/<fn>')
+    def video(id, fn):
       print(list(bottle.request.headers.items()))
-      ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
-      print('ranges', ranges)
-      offset, end = ranges[0]
-      self.transcoder.wait_for_byte(offset)
-      response = bottle.static_file(self.transcoder.fn, root='/')
+#      ranges = list(bottle.parse_range_header(bottle.request.environ['HTTP_RANGE'], 1000000000000))
+#      print('ranges', ranges)
+#      offset, end = ranges[0]
+#      self.transcoder.wait_for_byte(offset)
+      if fn.endswith('.ts') or fn.endswith('.m3u8'):
+        response = bottle.static_file(fn, root=self.transcoder.trans_dir)
+      else:
+        response = bottle.static_file(self.transcoder.fn, root='/')
       if 'Last-Modified' in response.headers:
         del response.headers['Last-Modified']
       response.headers['Access-Control-Allow-Origin'] = '*'
@@ -660,10 +663,11 @@ class Gnomecast(object):
       return
     cast = self.cast
     mc = cast.media_controller
+    fn = self.transcoder.fn
 
-    print('mc.status.player_state', mc.status.player_state, self.fn, hash(self.fn))
-    if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != self.fn:
-      self.last_fn_played = self.fn
+    print('mc.status.player_state', mc.status.player_state, fn, hash(fn))
+    if mc.status.player_state in ('IDLE','UNKNOWN') or self.last_fn_played != fn:
+      self.last_fn_played = fn
       cast.wait()
       mc = cast.media_controller
       kwargs = {}
@@ -672,9 +676,10 @@ class Gnomecast(object):
       current_time = self.scrubber_adj.get_value()
       if current_time:
         kwargs['current_time'] = current_time
-      ext = self.fn.split('.')[-1]
+      ext = fn.split('.')[-1]
       ext = ''.join(ch for ch in ext if ch.isalnum()).lower()
-      mc.play_media('http://%s:%s/media/%s.%s' % (self.ip, self.port, hash(self.fn), ext), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
+      basename = os.path.basename(fn)
+      mc.play_media('http://%s:%s/media/%s/%s' % (self.ip, self.port, hash(fn), basename), 'audio/%s'%ext if ext in AUDIO_EXTS else 'video/mp4', **kwargs)
       print(cast.status)
       print(mc.status)
       self.prep_next_transcode()

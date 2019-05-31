@@ -60,13 +60,22 @@ class Transcoder(object):
     print('transcode, transcode_video, transcode_audio', self.transcode, self.transcode_video, self.transcode_audio)
     if self.transcode:
       self.done = False
-      dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
-      os.remove(self.trans_fn)
+      self.trans_dir = tempfile.mkdtemp('gnomecast')
+      self.trans_fn = os.path.join(self.trans_dir, 'output.m3u8')
+
+      with open(self.trans_fn,'w') as f:
+        f.write('#EXTM3U\n')
+        f.write('#EXT-X-TARGETDURATION:60\n')
+        f.write('#EXT-X-ALLOW-CACHE:YES\n')
+        f.write('#EXT-X-VERSION:3\n')
+        for i in range(1,30):
+          f.write('#EXTINF:60.000,\noutput_%04d.ts\n' % i)
+
+      print('self.trans_dir', self.trans_dir)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-              'mp3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
-               self.trans_fn]  # '-movflags', 'faststart'
+              'aac' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
+               '-f', 'segment', '-segment_time', '60', '%s/output_%%04d.ts' % self.trans_dir]  # '-movflags', 'faststart'
       # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
       # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
       print(args)
@@ -89,6 +98,7 @@ class Transcoder(object):
       return video_codec in ('h264',)
 
   def wait_for_byte(self, offset, buffer=128 * 1024 * 1024):
+    return
     if self.done: return
     if self.source_fn.lower().split(".")[-1] == 'mp4':
       while offset > self.progress_bytes + buffer:
@@ -116,7 +126,7 @@ class Transcoder(object):
           items = [s.split('=') for s in line.split()]
           d = dict([x for x in items if len(x) == 2])
           print(d)
-          self.progress_bytes = int(d.get('size', '0kb')[:-2]) * 1024
+          #self.progress_bytes = int(d.get('size', '0kb')[:-2]) * 1024
           self.progress_seconds = parse_ffmpeg_time(d.get('time', '00:00:00'))
           line = b''
     self.p.stdout.close()
