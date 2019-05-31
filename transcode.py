@@ -65,17 +65,17 @@ class Transcoder(object):
 
       with open(self.trans_fn,'w') as f:
         f.write('#EXTM3U\n')
-        f.write('#EXT-X-TARGETDURATION:60\n')
+        f.write('#EXT-X-TARGETDURATION:600\n')
         f.write('#EXT-X-ALLOW-CACHE:YES\n')
         f.write('#EXT-X-VERSION:3\n')
         for i in range(1,30):
-          f.write('#EXTINF:60.000,\noutput_%04d.ts\n' % i)
+          f.write('#EXTINF:10.000,\noutput_%04d.ts\n' % i)
 
       print('self.trans_dir', self.trans_dir)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
               'aac' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
-               '-f', 'segment', '-segment_time', '60', '%s/output_%%04d.ts' % self.trans_dir]  # '-movflags', 'faststart'
+               '-f', 'segment', '-segment_time', '10', '%s/output_%%04d.ts' % self.trans_dir]  # '-movflags', 'faststart'
       # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
       # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
       print(args)
