@@ -98,9 +98,63 @@ def parse_ffmpeg_time(time_s):
   return hours * 60 * 60 + minutes * 60 + seconds
 
 
+
+class StreamMetadata:
+
+  def __init__(self, index, codec, title=None):
+    self.index = index
+    self.codec = codec
+    self.title = title
+
+  def __repr__(self):
+    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
+    return 'StreamMetadata(%s)' % ', '.join(fields)
+
+
+class FileMetadata(object):
+
+  def __init__(self, fn, callback=None):
+    self.fn = fn
+    self.ready = False
+    def parse():
+      self.thumbnail_fn = None
+      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
+      os.remove(thumbnail_fn)
+      self._ffmpeg_output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn], stderr=subprocess.STDOUT).decode()
+      if os.path.isfile(thumbnail_fn):
+        self.thumbnail_fn = thumbnail_fn
+      output = self._ffmpeg_output.split('\n')
+      self.container = fn.lower().split(".")[-1]
+      self.video_codec = None
+      self.audio_streams = []
+      stream = None
+      for line in output:
+        line = line.strip()
+        if line.startswith('Stream') and 'Video' in line and not self.video_codec:
+          stream = None
+          self.video_codec = line.split()[3]
+        elif line.startswith('Stream') and 'Audio' in line:
+          audio_codec = line.split()[3]
+          stream = StreamMetadata(len(self.audio_streams), audio_codec)
+          self.audio_streams.append(stream)
+        elif stream and line.startswith('title'):
+          stream.title = line.split()[2]
+        elif line.startswith('Output'):
+          break
+      self.ready = True
+      if callback: callback(self)
+    threading.Thread(target=parse).start()
+  
+  def __repr__(self):
+    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
+    return 'FileMetadata(%s)' % ', '.join(fields)
+
+
 class Transcoder(object):
 
-  def __init__(self, cast, fn, done_callback, prev_transcoder, force_audio=False, force_video=False):
+  def __init__(self, cast, fmd, done_callback, prev_transcoder, force_audio=False, force_video=False):
+    self.fmd = fmd
+    fn = fmd.fn
     self.cast = cast
     self.source_fn = fn
     self.p = None
@@ -114,21 +168,11 @@ class Transcoder(object):
     else:
       if prev_transcoder:
         prev_transcoder.destroy()
-      output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-'],
-                                       stderr=subprocess.STDOUT).decode().split('\n')
-      container = fn.lower().split(".")[-1]
-      video_codec = None
-      audio_codec = None
-      for line in output:
-        line = line.strip()
-        if line.startswith('Stream') and 'Video' in line and not video_codec:
-          video_codec = line.split()[3]
-        elif line.startswith('Stream') and 'Audio' in line and not audio_codec:
-          audio_codec = line.split()[3]
-      print('Transcoder', fn, container, video_codec, audio_codec)
-      transcode_container = container not in ('mp4', 'aac', 'mp3', 'wav')
-      self.transcode_video = force_video or not self.can_play_video_codec(video_codec)
-      self.transcode_audio = force_audio or container not in AUDIO_EXTS or not self.can_play_audio_codec(audio_codec)
+      audio_codec = fmd.audio_streams[0].codec
+      print('Transcoder', fn)
+      transcode_container = fmd.container not in ('mp4', 'aac', 'mp3', 'wav')
+      self.transcode_video = force_video or not self.can_play_video_codec(fmd.video_codec)
+      self.transcode_audio = force_audio or fmd.container not in AUDIO_EXTS or not self.can_play_audio_codec(audio_codec)
       self.transcode = transcode_container or self.transcode_video or self.transcode_audio
       self.trans_fn = None
 
@@ -452,7 +496,7 @@ class Gnomecast(object):
     win.add(vbox_outer)
 
     # list of queued files
-    self.files_store = Gtk.ListStore(str, str, int, str, str, int, str, object) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon, transcoder
+    self.files_store = Gtk.ListStore(str, str, int, str, str, int, str, object, object) # name, path, duration, duration_str, thumbnail_fn, transcode_progress, status_icon, transcoder, file_metadata
     self.files_store.connect("row-inserted", self.update_button_visible)
     self.files_store.connect("row-deleted", self.update_button_visible)
     self.files_view = Gtk.TreeView(self.files_store)
@@ -595,8 +639,9 @@ class Gnomecast(object):
     for row in self.files_store:
       if row[1]!=self.fn: continue
       transcoder = row[7]
+      fmd = row[8]
       transcoder.destroy()
-      self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
+      self.transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
       row[7] = self.transcoder
 
   def update_button_visible(self, x=None, y=None, z=None):
@@ -668,12 +713,21 @@ class Gnomecast(object):
       MAX_LEN = 40
       if len(display) > MAX_LEN:
         display = display[:MAX_LEN-10] + '...' + display[-10:]
-      self.files_store.append([display, fn, None, '...', None, None, None, None])
+      def callback(fmd):
+        print(fmd)
+        if os.path.isfile(fmd.thumbnail_fn):
+          for row in self.files_store:
+            if row[1]==fmd.fn:
+              row[4] = fmd.thumbnail_fn
+        def f():
+          if self.fn == fmd.fn and fmd.thumbnail_fn:
+            self.thumbnail_image.set_from_file(fmd.thumbnail_fn)
+            self.win.resize(1,1)
+          self.update_status()
+        GLib.idle_add(f)
+      fmd = FileMetadata(fn, callback)
+      self.files_store.append([display, fn, None, '...', None, None, None, None, fmd])
       threading.Thread(target=self.get_info, args=[fn]).start()
-    def gen_thumbnails():
-      for fn in files:
-        self.gen_thumbnail(fn)
-    threading.Thread(target=gen_thumbnails).start()
     self.scrolled_window.set_visible(True)
     if len(files) and self.fn is None:
       self.select_file(files[0])
@@ -945,8 +999,9 @@ class Gnomecast(object):
       for row in self.files_store:
         if row[1]!=self.fn: continue
         transcoder = row[7]
+        fmd = row[8]
         if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn:
-          self.transcoder = Transcoder(self.cast, self.fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+          self.transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
           row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
@@ -976,34 +1031,14 @@ class Gnomecast(object):
     for row in self.files_store:
       fn = row[1]
       transcoder = row[7]
+      fmd = row[8]
       if transcode_next and not transcoder:
         print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fn, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
         row[7] = transcoder
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
         transcode_next = True
-
-  def gen_thumbnail(self, fn):
-    container = fn.lower().split(".")[-1]
-    thumbnail_fn = None
-    if container in ('aac','mp3','wav'):
-      cmd = ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-']
-    else:
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
-      os.remove(thumbnail_fn)
-      cmd = ['ffmpeg', '-y', '-i', fn, '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn]
-    self.ffmpeg_desc = output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-    if os.path.isfile(thumbnail_fn):
-      for row in self.files_store:
-        if row[1]==fn:
-          row[4] = thumbnail_fn
-    def f():
-      if self.fn == fn and thumbnail_fn:
-        self.thumbnail_image.set_from_file(thumbnail_fn)
-        self.win.resize(1,1)
-      self.update_status()
-    GLib.idle_add(f)
 
   def get_info(self, fn):
     cmd = ['ffprobe', '-i', fn]
