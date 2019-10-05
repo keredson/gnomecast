@@ -108,7 +108,7 @@ class StreamMetadata:
 
   def __repr__(self):
     fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
-    return 'StreamMetadata(%s)' % ', '.join(fields)
+    return '%s(%s)' % (self.__class__.__name__, ', '.join(fields))
 
 
 class FileMetadata(object):
@@ -127,6 +127,7 @@ class FileMetadata(object):
       self.container = fn.lower().split(".")[-1]
       self.video_codec = None
       self.audio_streams = []
+      self.subtitles = []
       stream = None
       for line in output:
         line = line.strip()
@@ -137,13 +138,32 @@ class FileMetadata(object):
           audio_codec = line.split()[3]
           stream = StreamMetadata(len(self.audio_streams), audio_codec)
           self.audio_streams.append(stream)
+        elif line.startswith('Stream') and 'Subtitle' in line:
+          id = line.split()[1].strip('#').replace(':','.')
+          id = id[:id.index('(')]
+          stream = StreamMetadata(id, audio_codec)
+          self.subtitles.append(stream)
         elif stream and line.startswith('title'):
           stream.title = line.split()[2]
         elif line.startswith('Output'):
           break
+      self.load_subtitles()
       self.ready = True
       if callback: callback(self)
     threading.Thread(target=parse).start()
+  
+  def load_subtitles(self):
+    for stream in self.subtitles:
+      subtitle_id = stream.index
+      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
+      output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
+      with open(srt_fn) as f:
+        caps = f.read()
+      #print('caps', caps)
+      converter = pycaption.CaptionConverter()
+      converter.read(caps, pycaption.detect_format(caps)())
+      stream._subtitles = converter.write(pycaption.WebVTTWriter())
+      os.remove(srt_fn)
   
   def __repr__(self):
     fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
@@ -1054,37 +1074,25 @@ class Gnomecast(object):
             row[2] = duration
             row[3] = self.humanize_seconds(duration)
 
+  def get_fmd(self):
+    for row in self.files_store:
+      fn = row[1]
+      fmd = row[8]
+      if self.fn == fn:
+        return fmd
+
   def update_subtitles(self):
-    subtitle_ids = []
-    cmd = ['ffprobe', '-i', self.fn]
-    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-    for line in output.decode().split('\n'):
-      line = line.strip()
-      if line.startswith('Stream') and 'Subtitle' in line:
-        id = line.split()[1].strip('#').replace(':','.')
-        id = id[:id.index('(')]
-        subtitle_ids.append(id)
-    print('subtitle_ids', subtitle_ids)
-    new_subtitles = []
-    for subtitle_id in subtitle_ids:
-      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
-      output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
-      with open(srt_fn) as f:
-        caps = f.read()
-      #print('caps', caps)
-      converter = pycaption.CaptionConverter()
-      converter.read(caps, pycaption.detect_format(caps)())
-      subtitles = converter.write(pycaption.WebVTTWriter())
-      new_subtitles.append((subtitle_id, subtitles))
-      os.remove(srt_fn)
+    fmd = self.get_fmd()
+    while not fmd.ready:
+      time.sleep(1)
     def f():
       self.subtitle_store.clear()
       self.subtitle_store.append(["No subtitles.", -1, None])
       self.subtitle_store.append(["Add subtitle file...", -2, None])
       self.subtitle_combo.set_active(0)
       pos = len(self.subtitle_store)
-      for id, subs in new_subtitles:
-        self.subtitle_store.append([id, pos-2, subs])
+      for stream in fmd.subtitles:
+        self.subtitle_store.append([stream.title, pos-2, stream._subtitles])
         pos += 1
     GLib.idle_add(f)
     ext = self.fn.split('.')[-1]
