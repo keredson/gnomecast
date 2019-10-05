@@ -38,19 +38,17 @@ class Transcoder(object):
                                        stderr=subprocess.STDOUT).decode().split('\n')
       container = fn.lower().split(".")[-1]
       video_codec = None
-      transcode_audio = container not in AUDIO_EXTS
+      audio_codec = None
       for line in output:
         line = line.strip()
         if line.startswith('Stream') and 'Video' in line and not video_codec:
           video_codec = line.split()[3]
-        elif line.startswith('Stream') and 'Audio' in line and (
-          'aac (LC)' in line or 'aac (HE)' in line or 'mp3' in line):
-          transcode_audio = False
-      transcode_audio |= force_audio
-      print('Transcoder', fn, container, video_codec, transcode_audio)
+        elif line.startswith('Stream') and 'Audio' in line and not audio_codec:
+          audio_codec = line.split()[3]
+      print('Transcoder', fn, container, video_codec, audio_codec)
       transcode_container = container not in ('mp4', 'aac', 'mp3', 'wav')
       self.transcode_video = force_video or not self.can_play_video_codec(video_codec)
-      self.transcode_audio = transcode_audio
+      self.transcode_audio = force_audio or container not in AUDIO_EXTS or not self.can_play_audio_codec(audio_codec)
       self.transcode = transcode_container or self.transcode_video or self.transcode_audio
       self.trans_fn = None
 
@@ -65,7 +63,7 @@ class Transcoder(object):
       os.remove(self.trans_fn)
       # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
       args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-              'mp3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
+              'ac3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
                self.trans_fn]  # '-movflags', 'faststart'
       # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
       # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
@@ -87,6 +85,9 @@ class Transcoder(object):
       return video_codec in ('h264', 'h265', 'hevc')
     else:
       return video_codec in ('h264',)
+
+  def can_play_audio_codec(self, codec):
+    return codec in ('aac', 'mp3', 'ac3', 'eac3')
 
   def wait_for_byte(self, offset, buffer=128 * 1024 * 1024):
     if self.done: return
