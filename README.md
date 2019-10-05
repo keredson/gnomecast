@@ -14,6 +14,7 @@ This is a native Linux GUI for casting local files to Chromecast devices.  It su
 What's New
 ----------
 
+* `1.8`: 5.1/7.1 surround sound E/AC3 support.
 * `1.7`: Drag and drop files into the main UI.
 * `1.6`: Mutiple file / queuing support.
 
