@@ -45,14 +45,12 @@ class Transcoder(object):
       self.trans_dir = tempfile.mkdtemp(prefix='gnomecast_')
       self.trans_fn = os.path.join(self.trans_dir, 'output.m3u8')
 
-      with open(self.trans_fn,'w') as f:
+      with open(self.trans_fn,'w', encoding='utf-8') as f:
         f.write('#EXTM3U\n')
         f.write('#EXT-X-PLAYLIST-TYPE:EVENT\n')
         f.write('#EXT-X-TARGETDURATION:10\n')
         f.write('#EXT-X-ALLOW-CACHE:YES\n')
         f.write('#EXT-X-VERSION:3\n')
-        # chromecast hangs w/o at least one file
-        f.write('#EXTINF:10.000,\noutput_0000.ts\n')
 
       print('self.trans_dir', self.trans_dir)
     else:
@@ -60,18 +58,11 @@ class Transcoder(object):
   
   def start(self):
     if self.done: return
-    # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
-    args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-            'aac' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
-             '-f', 'segment', '-segment_time', '10', '%s/output_%%04d.ts' % self.trans_dir]  # '-movflags', 'faststart'
-    # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
-    # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
-    print(args)
-    self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    t = threading.Thread(target=self.monitor)
+    self.transcode_audio = True
+    t = threading.Thread(target=self.do_transcode)
     t.daemon = True
     t.start()
-    time.sleep(.5)
+    time.sleep(5)
 
   @property
   def fn(self):
@@ -83,28 +74,40 @@ class Transcoder(object):
     else:
       return video_codec in ('h264',)
 
-  def monitor(self):
-    print('monitoring...')
-    seen_files = set(['output_0000.ts'])
-    while True:
-      if self.p.poll() != None:
-        break
-      files = [fn for fn in os.listdir(self.trans_dir) if fn.endswith('.ts')]
-      new_files = set(files) - seen_files
-      seen_files.update(new_files)
-      new_files = sorted(new_files)
-      print('available:', new_files)
-      with open(self.trans_fn,'a') as f:
-        for fn in new_files:
-          f.write('#EXTINF:10.000,\n%s\n' % fn)
-      time.sleep(2)
+  def do_transcode(self):
+    print('transcoding...')
+    cmd = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
+            'aac' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
+             '-f', 'segment', '-segment_time', '10', '%s/output_%%04d.ts' % self.trans_dir]  # '-movflags', 'faststart'
+    print(' '.join(['"%s"'%arg if ' ' in arg else arg for arg in cmd]))
+    self.p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    currently_writing = None
+    def done_writing(fn):
+      print('transcode: done', fn)
+      with open(self.trans_fn,'a', encoding='utf-8') as f:
+        f.write('#EXTINF:10.000,\n%s\n' % fn)
+    for s in iter(self.p.stdout.readline, ""):
+        s = s.strip()
+        print('transcode:', s)
+        m = re.search(r"Opening '/tmp/gnomecast_\w+/(output_\d+.ts)' for writing", s)
+        if m:
+          if currently_writing:
+            done_writing(currently_writing)
+          currently_writing = m.group(1)
+    if currently_writing:
+      done_writing(currently_writing)
     self.p.stdout.close()
+    return_code = self.p.wait()
+    print('transcode done:', return_code)
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, cmd)
     self.done = True
 
   def destroy(self):
     # self.cast.media_controller.stop()
     if self.p and self.p.poll() is None:
       self.p.terminate()
-    shutil.rmtree(self.trans_dir)
+    if hasattr(self, 'trans_dir'):
+      shutil.rmtree(self.trans_dir)
     if self.trans_fn and os.path.isfile(self.trans_fn):
       os.remove(self.trans_fn)
