@@ -107,7 +107,7 @@ class StreamMetadata:
     self.title = title
 
   def __repr__(self):
-    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if v and not k.startswith('_')]
+    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if v is not None and not k.startswith('_')]
     return '%s(%s)' % (self.__class__.__name__, ', '.join(fields))
 
 
@@ -125,19 +125,32 @@ class FileMetadata(object):
         self.thumbnail_fn = thumbnail_fn
       output = self._ffmpeg_output.split('\n')
       self.container = fn.lower().split(".")[-1]
-      self.video_codec = None
+      self.video_streams = []
       self.audio_streams = []
       self.subtitles = []
       stream = None
       for line in output:
         line = line.strip()
-        if line.startswith('Stream') and 'Video' in line and not self.video_codec:
-          stream = None
-          self.video_codec = line.split()[3]
+        if line.startswith('Stream') and 'Video' in line:
+          id = line.split()[1].strip('#').strip(':')
+          title = 'Video #%i' % (len(self.video_streams)+1)
+          if '(' in id:
+            title = id[id.index('(')+1:id.index(')')]
+            id = id[:id.index('(')]
+          print('video:', line, repr(id))
+          video_codec = line.split()[3]
+          stream = StreamMetadata(id, video_codec, title=title)
+          self.video_streams.append(stream)
         elif line.startswith('Stream') and 'Audio' in line:
+          print('audio:', line)
+          title = 'Audio #%i' % (len(self.audio_streams)+1)
+          id = line.split()[1].strip('#').strip(':')
+          if '(' in id:
+            title = id[id.index('(')+1:id.index(')')]
+            id = id[:id.index('(')]
           audio_codec = line.split()[3]
-          title = None if self.audio_streams else '(Default)'
-          stream = StreamMetadata(len(self.audio_streams), audio_codec, title=title)
+          stream = StreamMetadata(id, audio_codec, title=title)
+          stream.mono = 'mono' in line
           self.audio_streams.append(stream)
         elif line.startswith('Stream') and 'Subtitle' in line:
           id = line.split()[1].strip('#').strip(':').replace(':','.')
@@ -176,8 +189,11 @@ class FileMetadata(object):
 
 class Transcoder(object):
 
-  def __init__(self, cast, fmd, done_callback, prev_transcoder, force_audio=False, force_video=False):
+  def __init__(self, cast, fmd, video_stream, audio_stream, done_callback, prev_transcoder, force_audio=False, force_video=False):
+    prev_transcoder = None
     self.fmd = fmd
+    self.video_stream = video_stream
+    self.audio_stream = audio_stream
     fn = fmd.fn
     self.cast = cast
     self.source_fn = fn
@@ -192,10 +208,10 @@ class Transcoder(object):
     else:
       if prev_transcoder:
         prev_transcoder.destroy()
-      audio_codec = fmd.audio_streams[0].codec
+      audio_codec = self.audio_stream.codec
       print('Transcoder', fn)
       transcode_container = fmd.container not in ('mp4', 'aac', 'mp3', 'wav')
-      self.transcode_video = force_video or not self.can_play_video_codec(fmd.video_codec)
+      self.transcode_video = force_video or not self.can_play_video_codec(video_stream.codec)
       self.transcode_audio = force_audio or fmd.container not in AUDIO_EXTS or not self.can_play_audio_codec(audio_codec)
       self.transcode = transcode_container or self.transcode_video or self.transcode_audio
       self.trans_fn = None
@@ -209,12 +225,11 @@ class Transcoder(object):
       dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
       self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
       os.remove(self.trans_fn)
-      # flags = '''-c:v libx264 -profile:v high -level 5 -crf 18 -maxrate 10M -bufsize 16M -pix_fmt yuv420p -x264opts bframes=3:cabac=1 -movflags faststart -c:a libfdk_aac -b:a 320k''' # -vf "scale=iw*sar:ih, scale='if(gt(iw,ih),min(1920,iw),-1)':'if(gt(iw,ih),-1,min(1080,ih))'"
-      args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-              'ac3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else []) + [
-               self.trans_fn]  # '-movflags', 'faststart'
-      # args = ['ffmpeg', '-i', self.source_fn, '-c:v', 'libvpx', '-b:v', '5M', '-c:a', 'libvorbis', '-deadline','realtime', self.trans_fn]
-      # args = ['ffmpeg', '-i', self.source_fn] + flags.split() + [self.trans_fn]
+      args = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index, '-map', self.audio_stream.index, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
+              'ac3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])  # '-movflags', 'faststart'
+#      if self.audio_stream.mono:
+#        args += ['-ac', '2']
+      args += [self.trans_fn]
       print(args)
       self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
       t = threading.Thread(target=self.monitor)
@@ -294,6 +309,8 @@ class Gnomecast(object):
     self.last_known_current_time = None
     self.last_time_current_time = None
     self.fn = None
+    self.video_stream = None
+    self.audio_stream = None
     self.last_fn_played = None
     self.transcoder = None
     self.duration = None
@@ -567,22 +584,35 @@ class Gnomecast(object):
     btn_vbox.pack_start(self.remove_button, False, False, 0)
 
     self.file_detail_row = hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    vbox.pack_start(hbox, False, False, 0)
-    self.subtitle_store = subtitle_store = Gtk.ListStore(str, int, str)
-    subtitle_store.append(["No subtitles.", -1, None])
-    subtitle_store.append(["Add subtitle file...", -2, None])
-    self.subtitle_combo = Gtk.ComboBox.new_with_model(subtitle_store)
+    vbox.pack_start(self.file_detail_row, False, False, 0)
+    
+    # audio/video track selection
+    self.stream_store = Gtk.ListStore(str, object, object)
+    self.audio_combo = Gtk.ComboBox.new_with_model(self.stream_store)
+    self.audio_combo.connect("changed", self.on_audio_combo_changed)
+    self.audio_combo.set_entry_text_column(0)
+    renderer_text = Gtk.CellRendererText()
+    self.audio_combo.pack_start(renderer_text, True)
+    self.audio_combo.add_attribute(renderer_text, "text", 0)
+    self.file_detail_row.pack_start(self.audio_combo, True, True, 0)
+
+    # subtitle selection
+    self.subtitle_store = Gtk.ListStore(str, int, str)
+    self.subtitle_store.append(["No subtitles.", -1, None])
+    self.subtitle_store.append(["Add subtitle file...", -2, None])
+    self.subtitle_combo = Gtk.ComboBox.new_with_model(self.subtitle_store)
     self.subtitle_combo.connect("changed", self.on_subtitle_combo_changed)
     self.subtitle_combo.set_entry_text_column(0)
     renderer_text = Gtk.CellRendererText()
     self.subtitle_combo.pack_start(renderer_text, True)
     self.subtitle_combo.add_attribute(renderer_text, "text", 0)
     self.subtitle_combo.set_active(0)
-    hbox.pack_start(self.subtitle_combo, True, True, 0)
+    self.file_detail_row.pack_start(self.subtitle_combo, True, True, 0)
+
     self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
     self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
     self.save_button.connect("clicked", self.save_transcoded_file)
-    hbox.pack_start(self.save_button, False, False, 0)
+    #self.file_detail_row.pack_start(self.save_button, False, False, 0) # disable for now
 
     # force transcode button
     self.transcode_button = Gtk.MenuButton()
@@ -598,7 +628,7 @@ class Gnomecast(object):
     action = Gio.SimpleAction.new("transcode-all", None)
     action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=True))
     self.win.add_action(action)
-    hbox.pack_start(self.transcode_button, False, False, 0)
+    self.file_detail_row.pack_start(self.transcode_button, False, False, 0)
 
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
@@ -665,7 +695,7 @@ class Gnomecast(object):
       transcoder = row[7]
       fmd = row[8]
       transcoder.destroy()
-      self.transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
+      self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
       row[7] = self.transcoder
 
   def update_button_visible(self, x=None, y=None, z=None):
@@ -677,7 +707,7 @@ class Gnomecast(object):
     self.file_button.get_child().set_padding(1,0,2,0) # w/ an empty label the + icon isn't quite centered
     self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
     self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
-    self.file_detail_row.set_visible(bool(self.fn and self.cast))
+    self.file_detail_row.set_visible(bool(self.fn))
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
     print('scrubber_move_started', seconds)
@@ -965,6 +995,7 @@ class Gnomecast(object):
   def unselect_file(self):
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = None
+    self.stream_store.clear()
     self.subtitle_store.clear()
     self.subtitle_store.append(["No subtitles.", -1, None])
     self.subtitle_combo.set_active(0)
@@ -993,6 +1024,7 @@ class Gnomecast(object):
     fn = os.path.abspath(fn)
     self.thumbnail_image.set_from_pixbuf(self.get_logo_pixbuf())
     self.fn = fn
+    self.stream_store.clear()
     self.subtitle_store.clear()
     self.subtitle_store.append(["Checking for subtitles...", -1, None])
     self.subtitle_store.append(["Add subtitle file...", -2, None])
@@ -1012,6 +1044,7 @@ class Gnomecast(object):
         else:
           row[6] = None
       threading.Thread(target=self.update_transcoders).start()
+      threading.Thread(target=self.update_audio_tracks).start()
       threading.Thread(target=self.update_subtitles).start()
       self.update_button_visible()
       self.update_media_button_states()
@@ -1024,8 +1057,10 @@ class Gnomecast(object):
         if row[1]!=self.fn: continue
         transcoder = row[7]
         fmd = row[8]
-        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn:
-          self.transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        if not self.video_stream: self.video_stream = fmd.video_streams[0]
+        if not self.audio_stream: self.audio_stream = fmd.audio_streams[0]
+        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
+          self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
           row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
@@ -1058,7 +1093,7 @@ class Gnomecast(object):
       fmd = row[8]
       if transcode_next and not transcoder:
         print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fmd, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0], lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
         row[7] = transcoder
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
@@ -1105,6 +1140,18 @@ class Gnomecast(object):
       if os.path.isfile(self.fn[:-len(ext)] + sext):
         self.select_subtitles_file(self.fn[:-len(ext)] + sext)
         break
+
+  def update_audio_tracks(self):
+    fmd = self.get_fmd()
+    while not fmd.ready:
+      time.sleep(1)
+    def f():
+      self.stream_store.clear()
+      for video_stream in fmd.video_streams:
+        for audio_stream in fmd.audio_streams:
+          self.stream_store.append(['%s - %s' % (video_stream.title, audio_stream.title), video_stream, audio_stream])
+      self.audio_combo.set_active(0)
+    GLib.idle_add(f)
 
   def on_key_press(self, widget, event, user_data=None):
     key = Gdk.keyval_name(event.keyval)
@@ -1186,6 +1233,16 @@ class Gnomecast(object):
               threading.Timer(1, lambda: GLib.idle_add(f)).start()
       else:
           entry = combo.get_child()
+
+  def on_audio_combo_changed(self, combo):
+      tree_iter = combo.get_active_iter()
+      if tree_iter is not None:
+          model = combo.get_model()
+          text, video_stream, audio_stream = model[tree_iter]
+          print(text, video_stream, audio_stream)
+          self.video_stream = video_stream
+          self.audio_stream = audio_stream
+          threading.Thread(target=self.update_transcoders).start()
 
 
 
