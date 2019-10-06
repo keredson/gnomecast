@@ -24,7 +24,8 @@ Install
 Please run:
 
 ```
-$ sudo pip3 install gnomecast
+$ sudo apt install ffmpeg python3-pip python3-gi
+$ pip3 install gnomecast
 ```
 
 If installing in a `mkvirtualenv` built virtual environment, make sure you include the `--system-site-packages` parameter to get the GTK bindings.
