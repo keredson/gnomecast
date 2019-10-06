@@ -198,7 +198,6 @@ class Transcoder(object):
     self.cast = cast
     self.source_fn = fn
     self.p = None
-    self.show_save_button = False
 
     if prev_transcoder and prev_transcoder.source_fn == self.source_fn:
       self.transcode_video = prev_transcoder.transcode_video
@@ -285,7 +284,6 @@ class Transcoder(object):
           line = b''
     self.p.stdout.close()
     self.done = True
-    self.show_save_button = True
     self.done_callback(did_transcode=True)
 
   def destroy(self):
@@ -609,11 +607,6 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(0)
     self.file_detail_row.pack_start(self.subtitle_combo, True, True, 0)
 
-    self.save_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_SAVE))
-    self.save_button.set_tooltip_text('Overwrite original file with transcoded version.')
-    self.save_button.connect("clicked", self.save_transcoded_file)
-    #self.file_detail_row.pack_start(self.save_button, False, False, 0) # disable for now
-
     # force transcode button
     self.transcode_button = Gtk.MenuButton()
     self.transcode_button.set_tooltip_text("Force transcode (if your Chromecast won't play a file)...")
@@ -706,7 +699,6 @@ class Gnomecast(object):
     self.file_button.set_label('' if count else '  Add one or more audio or video files...')
     self.file_button.get_child().set_padding(1,0,2,0) # w/ an empty label the + icon isn't quite centered
     self.hbox.set_child_packing(self.btn_vbox, not count, not count, 0, Gtk.PackType.START)
-    self.save_button.set_visible(bool(self.transcoder and self.transcoder.show_save_button))
     self.file_detail_row.set_visible(bool(self.fn))
 
   def scrubber_move_started(self, scale, scroll_type, seconds):
@@ -798,27 +790,6 @@ class Gnomecast(object):
       self.last_known_volume_level = volume
       self.cast.set_volume(volume)
       print('setting volume', volume)
-
-  def save_transcoded_file(self, x):
-    print('save_transcoded_file')
-    if not self.transcoder or not self.transcoder.transcode:
-      return
-    fn = self.transcoder.fn
-    display_name = os.path.basename(self.fn)
-    path = os.path.dirname(self.fn)
-    display_name = os.path.splitext(display_name)[0]+'.mp4'
-    new_fn = os.path.join(path, display_name)
-    print(fn, '=>', new_fn)
-    os.rename(fn, new_fn)
-    os.remove(self.fn)
-    self.transcoder.source_fn = new_fn
-    self.transcoder.transcode = False
-    self.transcoder.show_save_button = False
-    self.fn = new_fn
-    def f():
-      self.update_button_visible()
-      self.update_status()
-    GLib.idle_add(f)
 
   @throttle()
   def scrubber_moved(self, scale, scroll_type, seconds):
