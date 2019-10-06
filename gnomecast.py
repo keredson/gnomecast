@@ -607,22 +607,6 @@ class Gnomecast(object):
     self.subtitle_combo.set_active(0)
     self.file_detail_row.pack_start(self.subtitle_combo, True, True, 0)
 
-    # force transcode button
-    self.transcode_button = Gtk.MenuButton()
-    self.transcode_button.set_tooltip_text("Force transcode (if your Chromecast won't play a file)...")
-    menumodel = Gio.Menu()
-    menumodel.append("Transcode Audio Only (fast)", 'win.transcode-audio')
-    menumodel.append("Transcode Audio and Video (slow)", "win.transcode-all")
-    self.transcode_button.set_menu_model(menumodel)
-    self.transcode_button.set_image(Gtk.Image(stock=Gtk.STOCK_CONVERT))
-    action = Gio.SimpleAction.new("transcode-audio", None)
-    action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=False))
-    self.win.add_action(action)
-    action = Gio.SimpleAction.new("transcode-all", None)
-    action.connect("activate", lambda a,b: self.force_transcode(audio=True, video=True))
-    self.win.add_action(action)
-    self.file_detail_row.pack_start(self.transcode_button, False, False, 0)
-
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
     self.scrubber.set_digits(0)
@@ -681,15 +665,6 @@ class Gnomecast(object):
     if fn.startswith('file://'):
       fn = urllib.parse.unquote(fn[len('file://'):]).strip()
       self.queue_files([fn])
-
-  def force_transcode(self, audio=True, video=True):
-    for row in self.files_store:
-      if row[1]!=self.fn: continue
-      transcoder = row[7]
-      fmd = row[8]
-      transcoder.destroy()
-      self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), None, force_audio=audio, force_video=video)
-      row[7] = self.transcoder
 
   def update_button_visible(self, x=None, y=None, z=None):
     print('update_button_visible')
@@ -808,7 +783,6 @@ class Gnomecast(object):
       return '%im %is' % (minutes, seconds)
     else:
       return '%is' % (seconds)
-
 
   def stop_clicked(self, widget):
     if not self.cast: return
