@@ -186,6 +186,15 @@ class FileMetadata(object):
     fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
     return 'FileMetadata(%s)' % ', '.join(fields)
 
+  def details(self):
+    fields = [
+      'File: %s' % os.path.basename(self.fn),
+      'Video: %s' % ', '.join(['%s (%s)' % (s.title, s.codec) for s in self.video_streams]),
+      'Audio: %s' % ', '.join(['%s (%s)' % (s.title, s.codec) for s in self.audio_streams]),
+      'Subtitles: %s' % ', '.join([s.title for s in self.subtitles]),
+    ]
+    return '\n'.join(fields)
+
 
 class Transcoder(object):
 
@@ -331,7 +340,7 @@ class Gnomecast(object):
     t.daemon = True
     t.start()
     if fn:
-      self.select_file(fn)
+      self.queue_files([fn])
     if subtitles:
       self.select_subtitles_file(subtitles)
     if fn and subtitles:
@@ -606,6 +615,10 @@ class Gnomecast(object):
     self.subtitle_combo.add_attribute(renderer_text, "text", 0)
     self.subtitle_combo.set_active(0)
     self.file_detail_row.pack_start(self.subtitle_combo, True, True, 0)
+
+    file_info_button = Gtk.Button(None, image=Gtk.Image(stock=Gtk.STOCK_DIALOG_INFO))
+    file_info_button.connect("clicked", self.show_file_info)
+    self.file_detail_row.pack_start(file_info_button, False, False, 0)
 
     self.scrubber_adj = Gtk.Adjustment(0, 0, 100, 15, 60, 0)
     self.scrubber = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.scrubber_adj)
@@ -1116,6 +1129,33 @@ class Gnomecast(object):
     self.update_media_button_states()
     threading.Thread(target=self.update_transcoders).start()
 
+  def show_file_info(self, b=None):
+    print('show_file_info')
+    fmd = self.get_fmd()
+    msg = '\n' + fmd.details()
+    dialogWindow = Gtk.MessageDialog(self.win,
+                          Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                          Gtk.MessageType.INFO,
+                          Gtk.ButtonsType.OK,
+                          msg)
+    dialogWindow.set_title('File Info')
+    dialogWindow.set_default_size(1, 600)
+
+    dialogBox = dialogWindow.get_content_area()
+    buffer1 = Gtk.TextBuffer()
+    buffer1.set_text(fmd._ffmpeg_output)
+    text_view = Gtk.TextView(buffer=buffer1)
+    text_view.set_editable(False)
+    scrolled_window = Gtk.ScrolledWindow()
+    scrolled_window.set_border_width(5)
+    # we scroll only if needed
+    scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scrolled_window.add(text_view)
+    dialogBox.pack_end(scrolled_window, True, True, 0)
+
+    dialogWindow.show_all()
+    response = dialogWindow.run()
+    dialogWindow.destroy()
 
   def get_nonlocal_cast(self):
     dialogWindow = Gtk.MessageDialog(self.win,
