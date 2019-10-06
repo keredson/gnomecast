@@ -107,7 +107,7 @@ class StreamMetadata:
     self.title = title
 
   def __repr__(self):
-    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
+    fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if v and not k.startswith('_')]
     return '%s(%s)' % (self.__class__.__name__, ', '.join(fields))
 
 
@@ -136,12 +136,16 @@ class FileMetadata(object):
           self.video_codec = line.split()[3]
         elif line.startswith('Stream') and 'Audio' in line:
           audio_codec = line.split()[3]
-          stream = StreamMetadata(len(self.audio_streams), audio_codec)
+          title = None if self.audio_streams else '(Default)'
+          stream = StreamMetadata(len(self.audio_streams), audio_codec, title=title)
           self.audio_streams.append(stream)
         elif line.startswith('Stream') and 'Subtitle' in line:
-          id = line.split()[1].strip('#').replace(':','.')
-          id = id[:id.index('(')]
-          stream = StreamMetadata(id, audio_codec)
+          id = line.split()[1].strip('#').strip(':').replace(':','.')
+          print(line, id)
+          if '(' in id:
+            title = id[id.index('(')+1:id.index(')')]
+            id = id[:id.index('(')]
+          stream = StreamMetadata(id, None, title=title)
           self.subtitles.append(stream)
         elif stream and line.startswith('title'):
           stream.title = line.split()[2]
