@@ -21,8 +21,8 @@ setup(
   url='https://github.com/keredson/gnomecast',
   py_modules=['gnomecast'],
   classifiers=[
-    'Development Status :: 4 - Beta',
-    'Intended Audience :: Developers',
+    'Development Status :: 5 - Production/Stable',
+    'Intended Audience :: End Users/Desktop',
     'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
     'Operating System :: OS Independent',
     'Programming Language :: Python',

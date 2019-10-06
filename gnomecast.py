@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.0'
+__version__ = '1.9.1'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -121,6 +121,7 @@ class FileMetadata(object):
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
       os.remove(thumbnail_fn)
       self._ffmpeg_output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn], stderr=subprocess.STDOUT).decode()
+      _important_ffmpeg = []
       if os.path.isfile(thumbnail_fn):
         self.thumbnail_fn = thumbnail_fn
       output = self._ffmpeg_output.split('\n')
@@ -131,7 +132,10 @@ class FileMetadata(object):
       stream = None
       for line in output:
         line = line.strip()
+        if line.startswith('ffmpeg version'):
+          _important_ffmpeg.append(line)
         if line.startswith('Stream') and 'Video' in line:
+          _important_ffmpeg.append(line)
           id = line.split()[1].strip('#').strip(':')
           title = 'Video #%i' % (len(self.video_streams)+1)
           if '(' in id:
@@ -142,6 +146,7 @@ class FileMetadata(object):
           stream = StreamMetadata(id, video_codec, title=title)
           self.video_streams.append(stream)
         elif line.startswith('Stream') and 'Audio' in line:
+          _important_ffmpeg.append(line)
           print('audio:', line)
           title = 'Audio #%i' % (len(self.audio_streams)+1)
           id = line.split()[1].strip('#').strip(':')
@@ -153,6 +158,7 @@ class FileMetadata(object):
           stream.mono = 'mono' in line
           self.audio_streams.append(stream)
         elif line.startswith('Stream') and 'Subtitle' in line:
+          _important_ffmpeg.append(line)
           id = line.split()[1].strip('#').strip(':').replace(':','.')
           print(line, id)
           if '(' in id:
@@ -161,9 +167,11 @@ class FileMetadata(object):
           stream = StreamMetadata(id, None, title=title)
           self.subtitles.append(stream)
         elif stream and line.startswith('title'):
+          _important_ffmpeg.append(line)
           stream.title = line.split()[2]
         elif line.startswith('Output'):
           break
+      self._important_ffmpeg = '\n'.join(_important_ffmpeg)
       self.load_subtitles()
       self.ready = True
       if callback: callback(self)
@@ -1133,6 +1141,9 @@ class Gnomecast(object):
     print('show_file_info')
     fmd = self.get_fmd()
     msg = '\n' + fmd.details()
+    if self.cast:
+      msg += '\nDevice: %s (%s)' % (self.cast.device.model_name, self.cast.device.manufacturer) 
+    msg += '\nChromecast: v%s' % (__version__)
     dialogWindow = Gtk.MessageDialog(self.win,
                           Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
                           Gtk.MessageType.INFO,
@@ -1140,6 +1151,22 @@ class Gnomecast(object):
                           msg)
     dialogWindow.set_title('File Info')
     dialogWindow.set_default_size(1, 600)
+    
+    if self.cast:
+      title = 'Error playing %s' % os.path.basename(self.fn)
+      body = '''
+[Please describe what happened here...]
+
+------------------------------------------------------------
+
+%s
+
+%s
+
+```%s```''' % (msg, fmd, fmd._important_ffmpeg)
+      url = 'https://github.com/keredson/gnomecast/issues/new?title=%s&body=%s' % (urllib.parse.quote(title), urllib.parse.quote(body))
+      dialogWindow.add_action_widget(Gtk.LinkButton(url, label="Report File Doesn't Play"), 10)
+      
 
     dialogBox = dialogWindow.get_content_area()
     buffer1 = Gtk.TextBuffer()
