@@ -51,6 +51,21 @@ if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
 
 
+class Device:
+  def __init__(self, h265=None):
+    self.h265 = h265
+    
+HARDWARE = {
+  ('Unknown manufacturer','Chromecast'): Device(h265=False),
+  ('Unknown manufacturer','Chromecast Ultra'): Device(h265=True),
+  ('Unknown manufacturer','Google Home Mini'): Device(h265=False),
+  ('Unknown manufacturer','Google Home'): Device(h265=False),
+  ('VIZIO','P75-F1'): Device(h265=True),
+}
+
+
+
+
 def throttle(seconds=2):
   def decorator(f):
     timer = None
@@ -266,7 +281,12 @@ class Transcoder(object):
     return self.trans_fn if self.transcode else self.source_fn
 
   def can_play_video_codec(self, video_codec):
-    if self.cast.device.model_name == 'Chromecast Ultra' or self.cast.device.manufacturer == 'VIZIO':
+    h265 = True
+    if self.cast.device.cast_type == 'audio': h265 = False
+    device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+    if device_info and device_info.h265 is not None:
+      h265 = device_info.h265
+    if h265:
       return video_codec in ('h264', 'h265', 'hevc')
     else:
       return video_codec in ('h264',)
