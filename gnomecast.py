@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.1'
+__version__ = '1.9.2'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -159,7 +159,7 @@ class FileMetadata(object):
           self.audio_streams.append(stream)
         elif line.startswith('Stream') and 'Subtitle' in line:
           _important_ffmpeg.append(line)
-          id = line.split()[1].strip('#').strip(':').replace(':','.')
+          id = line.split()[1].strip('#').strip(':')
           print(line, id)
           if '(' in id:
             title = id[id.index('(')+1:id.index(')')]
@@ -178,10 +178,16 @@ class FileMetadata(object):
     threading.Thread(target=parse).start()
   
   def load_subtitles(self):
+    cmd = ['ffmpeg', '-y', '-i', self.fn, '-vn', '-an',]
+    files = []
     for stream in self.subtitles:
-      subtitle_id = stream.index
       srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
-      output = subprocess.check_output(['ffmpeg', '-y', '-i', self.fn, '-vn', '-an', '-codec:s:%s' % subtitle_id, 'srt', srt_fn], stderr=subprocess.STDOUT)
+      files.append(srt_fn)
+      cmd += ['-map', stream.index, '-codec', 'srt', srt_fn]
+      
+    print(cmd)
+    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    for stream, srt_fn in zip(self.subtitles, files):
       with open(srt_fn) as f:
         caps = f.read()
       #print('caps', caps)
@@ -612,9 +618,7 @@ class Gnomecast(object):
     self.file_detail_row.pack_start(self.audio_combo, True, True, 0)
 
     # subtitle selection
-    self.subtitle_store = Gtk.ListStore(str, int, str)
-    self.subtitle_store.append(["No subtitles.", -1, None])
-    self.subtitle_store.append(["Add subtitle file...", -2, None])
+    self.subtitle_store = Gtk.ListStore(str, object, object) # title, stream, callback
     self.subtitle_combo = Gtk.ComboBox.new_with_model(self.subtitle_store)
     self.subtitle_combo.connect("changed", self.on_subtitle_combo_changed)
     self.subtitle_combo.set_entry_text_column(0)
@@ -680,6 +684,12 @@ class Gnomecast(object):
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
 
+
+  def add_extra_subtitle_options(self):
+    self.subtitle_store.prepend(["No subtitles.", None, None])
+    self.subtitle_store.append(["Add subtitle file...", None, self.on_new_subtitle_clicked])
+    #self.subtitle_store.append(["Download...", None, self.on_download_subtitle_clicked])
+    self.subtitle_combo.set_active(0)
 
   def on_drag_data_received(self, widget, drag_context, x,y, data,info, time):
     fn = data.get_text()
@@ -929,6 +939,32 @@ class Gnomecast(object):
 
       dialog.destroy()
 
+  def on_download_subtitle_clicked(self):
+      dialog = Gtk.FileChooserDialog("Please choose a subtitle file...", self.win,
+          Gtk.FileChooserAction.OPEN,
+          (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+           Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+
+      if self.fn:
+        dialog.set_current_folder(os.path.dirname(self.fn))
+
+      filter_py = Gtk.FileFilter()
+      filter_py.set_name("Subtitles")
+      filter_py.add_pattern("*.srt")
+      filter_py.add_pattern("*.vtt")
+      dialog.add_filter(filter_py)
+
+      response = dialog.run()
+      if response == Gtk.ResponseType.OK:
+          print("Open clicked")
+          print("File selected: " + dialog.get_filename())
+          self.select_subtitles_file(dialog.get_filename())
+      elif response == Gtk.ResponseType.CANCEL:
+          print("Cancel clicked")
+          self.subtitle_combo.set_active(0)
+
+      dialog.destroy()
+
   def select_subtitles_file(self, fn):
     if not os.path.isfile(fn):
       def f():
@@ -955,7 +991,9 @@ class Gnomecast(object):
       converter.read(caps, pycaption.detect_format(caps)())
       self.subtitles = converter.write(pycaption.WebVTTWriter())
     pos = len(self.subtitle_store)
-    self.subtitle_store.append([display_name, pos-2, self.subtitles])
+    stream = StreamMetadata(None, None, title=display_name)
+    stream._subtitles = self.subtitles
+    self.subtitle_store.append([display_name, stream, None])
     self.subtitle_combo.set_active(pos)
 
   def unselect_file(self):
@@ -963,7 +1001,6 @@ class Gnomecast(object):
     self.fn = None
     self.stream_store.clear()
     self.subtitle_store.clear()
-    self.subtitle_store.append(["No subtitles.", -1, None])
     self.subtitle_combo.set_active(0)
     self.transcoder = None
     self.duration = None
@@ -992,9 +1029,6 @@ class Gnomecast(object):
     self.fn = fn
     self.stream_store.clear()
     self.subtitle_store.clear()
-    self.subtitle_store.append(["Checking for subtitles...", -1, None])
-    self.subtitle_store.append(["Add subtitle file...", -2, None])
-    self.subtitle_combo.set_active(0)
     if self.cast:
       self.cast.media_controller.stop()
     def f():
@@ -1092,13 +1126,11 @@ class Gnomecast(object):
       time.sleep(1)
     def f():
       self.subtitle_store.clear()
-      self.subtitle_store.append(["No subtitles.", -1, None])
-      self.subtitle_store.append(["Add subtitle file...", -2, None])
-      self.subtitle_combo.set_active(0)
       pos = len(self.subtitle_store)
       for stream in fmd.subtitles:
-        self.subtitle_store.append([stream.title, pos-2, stream._subtitles])
+        self.subtitle_store.append([stream.title, stream, None])
         pos += 1
+      self.add_extra_subtitle_options()
     GLib.idle_add(f)
     ext = self.fn.split('.')[-1]
     sexts = ['vtt', 'srt']
@@ -1231,12 +1263,11 @@ class Gnomecast(object):
       tree_iter = combo.get_active_iter()
       if tree_iter is not None:
           model = combo.get_model()
-          text, position, subs = model[tree_iter]
-          print(text, position, subs)
-          if position==-1: self.subtitles = None
-          elif position==-2: self.on_new_subtitle_clicked()
+          text, stream, callback = model[tree_iter]
+          print('chose subtitle', text, stream, callback)
+          if callback: callback()
           else:
-            self.subtitles = subs
+            self.subtitles = stream._subtitles if stream else None
             mc = self.cast.media_controller if self.cast else None
             if mc and mc.status.player_state in ('BUFFERING','PLAYING','PAUSED'):
               self.stop_clicked(None)
