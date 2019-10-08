@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.2'
+__version__ = '1.9.3'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -192,7 +192,12 @@ class FileMetadata(object):
       if callback: callback(self)
     threading.Thread(target=parse).start()
   
+  def wait(self):
+    while not self.ready:
+      time.sleep(1)
+  
   def load_subtitles(self):
+    if not self.subtitles: return
     cmd = ['ffmpeg', '-y', '-i', self.fn, '-vn', '-an',]
     files = []
     for stream in self.subtitles:
@@ -201,15 +206,20 @@ class FileMetadata(object):
       cmd += ['-map', stream.index, '-codec', 'srt', srt_fn]
       
     print(cmd)
-    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-    for stream, srt_fn in zip(self.subtitles, files):
-      with open(srt_fn) as f:
-        caps = f.read()
-      #print('caps', caps)
-      converter = pycaption.CaptionConverter()
-      converter.read(caps, pycaption.detect_format(caps)())
-      stream._subtitles = converter.write(pycaption.WebVTTWriter())
-      os.remove(srt_fn)
+    try:
+      output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+      for stream, srt_fn in zip(self.subtitles, files):
+        with open(srt_fn) as f:
+          caps = f.read()
+        #print('caps', caps)
+        converter = pycaption.CaptionConverter()
+        converter.read(caps, pycaption.detect_format(caps)())
+        stream._subtitles = converter.write(pycaption.WebVTTWriter())
+        os.remove(srt_fn)
+    except subprocess.CalledProcessError as e:
+      print('ERROR processing subtitles:', e)
+      self.subtitles = []
+      
   
   def __repr__(self):
     fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if not k.startswith('_')]
@@ -1077,6 +1087,7 @@ class Gnomecast(object):
         if row[1]!=self.fn: continue
         transcoder = row[7]
         fmd = row[8]
+        fmd.wait()
         if not self.video_stream: self.video_stream = fmd.video_streams[0]
         if not self.audio_stream: self.audio_stream = fmd.audio_streams[0]
         if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
@@ -1142,8 +1153,7 @@ class Gnomecast(object):
 
   def update_subtitles(self):
     fmd = self.get_fmd()
-    while not fmd.ready:
-      time.sleep(1)
+    fmd.wait()
     def f():
       self.subtitle_store.clear()
       pos = len(self.subtitle_store)
@@ -1161,8 +1171,7 @@ class Gnomecast(object):
 
   def update_audio_tracks(self):
     fmd = self.get_fmd()
-    while not fmd.ready:
-      time.sleep(1)
+    fmd.wait()
     def f():
       self.stream_store.clear()
       for video_stream in fmd.video_streams:
