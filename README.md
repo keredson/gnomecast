@@ -43,7 +43,7 @@ You can also run it from the command line:
 $ gnomecast
 ```
 
-If you ran `pip3` without `sudo` when installing, and `$ gnomecast` doesn't work due to your local path setup, you can also run it as:
+Or:
 
 ```
 $ python3 -m gnomecast
