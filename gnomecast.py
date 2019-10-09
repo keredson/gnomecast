@@ -45,22 +45,23 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.3'
+__version__ = '1.9.4'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
 
 
 class Device:
-  def __init__(self, h265=None):
+  def __init__(self, h265=None, ac3=None):
     self.h265 = h265
+    self.ac3 = ac3
     
 HARDWARE = {
-  ('Unknown manufacturer','Chromecast'): Device(h265=False),
-  ('Unknown manufacturer','Chromecast Ultra'): Device(h265=True),
-  ('Unknown manufacturer','Google Home Mini'): Device(h265=False),
-  ('Unknown manufacturer','Google Home'): Device(h265=False),
-  ('VIZIO','P75-F1'): Device(h265=True),
+  ('Unknown manufacturer','Chromecast'): Device(h265=False, ac3=False),
+  ('Unknown manufacturer','Chromecast Ultra'): Device(h265=True, ac3=True),
+  ('Unknown manufacturer','Google Home Mini'): Device(h265=False, ac3=False),
+  ('Unknown manufacturer','Google Home'): Device(h265=False, ac3=False),
+  ('VIZIO','P75-F1'): Device(h265=True, ac3=True),
 }
 
 
@@ -125,17 +126,33 @@ class StreamMetadata:
     fields = ['%s:%s'%(k,v) for k,v in self.__dict__.items() if v is not None and not k.startswith('_')]
     return '%s(%s)' % (self.__class__.__name__, ', '.join(fields))
 
+class AudioMetadata(StreamMetadata):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.channels = 2
+  
+  def details(self):
+    if self.channels == 1: channels = 'mono'
+    elif self.channels == 2: channels = 'stereo'
+    elif self.channels == 6: channels = '5.1'
+    elif self.channels == 8: channels = '7.1'
+    else: channels = str(self.channels)
+    return '%s (%s/%s)' % (self.title, self.codec, channels)
+
 
 class FileMetadata(object):
 
-  def __init__(self, fn, callback=None):
+  def __init__(self, fn, callback=None, _ffmpeg_output=None):
     self.fn = fn
     self.ready = False
     def parse():
       self.thumbnail_fn = None
       thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
       os.remove(thumbnail_fn)
-      self._ffmpeg_output = subprocess.check_output(['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn], stderr=subprocess.STDOUT).decode()
+      self._ffmpeg_output = _ffmpeg_output if _ffmpeg_output else subprocess.check_output(
+        ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn],
+        stderr=subprocess.STDOUT
+      ).decode()
       _important_ffmpeg = []
       if os.path.isfile(thumbnail_fn):
         self.thumbnail_fn = thumbnail_fn
@@ -156,21 +173,22 @@ class FileMetadata(object):
           if '(' in id:
             title = id[id.index('(')+1:id.index(')')]
             id = id[:id.index('(')]
-          print('video:', line, repr(id))
           video_codec = line.split()[3]
           stream = StreamMetadata(id, video_codec, title=title)
           self.video_streams.append(stream)
         elif line.startswith('Stream') and 'Audio' in line:
           _important_ffmpeg.append(line)
-          print('audio:', line)
           title = 'Audio #%i' % (len(self.audio_streams)+1)
           id = line.split()[1].strip('#').strip(':')
           if '(' in id:
             title = id[id.index('(')+1:id.index(')')]
             id = id[:id.index('(')]
-          audio_codec = line.split()[3]
-          stream = StreamMetadata(id, audio_codec, title=title)
-          stream.mono = 'mono' in line
+          audio_codec = line.split()[3].strip(',')
+          stream = AudioMetadata(id, audio_codec, title=title)
+          if ', stereo, ' in line: stream.channels = 1
+          if ', stereo, ' in line: stream.channels = 2
+          if ', 5.1' in line: stream.channels = 6
+          if ', 7.1' in line: stream.channels = 8
           self.audio_streams.append(stream)
         elif line.startswith('Stream') and 'Subtitle' in line:
           _important_ffmpeg.append(line)
@@ -187,7 +205,8 @@ class FileMetadata(object):
         elif line.startswith('Output'):
           break
       self._important_ffmpeg = '\n'.join(_important_ffmpeg)
-      self.load_subtitles()
+      if not _ffmpeg_output:
+        self.load_subtitles()
       self.ready = True
       if callback: callback(self)
     threading.Thread(target=parse).start()
@@ -229,7 +248,7 @@ class FileMetadata(object):
     fields = [
       'File: %s' % os.path.basename(self.fn),
       'Video: %s' % ', '.join(['%s (%s)' % (s.title, s.codec) for s in self.video_streams]),
-      'Audio: %s' % ', '.join(['%s (%s)' % (s.title, s.codec) for s in self.audio_streams]),
+      'Audio: %s' % ', '.join([s.details() for s in self.audio_streams]),
       'Subtitles: %s' % ', '.join([s.title for s in self.subtitles]),
     ]
     return '\n'.join(fields)
@@ -237,8 +256,7 @@ class FileMetadata(object):
 
 class Transcoder(object):
 
-  def __init__(self, cast, fmd, video_stream, audio_stream, done_callback, prev_transcoder, force_audio=False, force_video=False):
-    prev_transcoder = None
+  def __init__(self, cast, fmd, video_stream, audio_stream, done_callback, prev_transcoder=None, force_audio=False, force_video=False, fake=False):
     self.fmd = fmd
     self.video_stream = video_stream
     self.audio_stream = audio_stream
@@ -247,21 +265,15 @@ class Transcoder(object):
     self.source_fn = fn
     self.p = None
 
-    if prev_transcoder and prev_transcoder.source_fn == self.source_fn:
-      self.transcode_video = prev_transcoder.transcode_video
-      self.transcode_audio = prev_transcoder.transcode_audio
-      self.transcode = False
-      self.trans_fn = prev_transcoder.trans_fn
-    else:
-      if prev_transcoder:
-        prev_transcoder.destroy()
-      audio_codec = self.audio_stream.codec
-      print('Transcoder', fn)
-      transcode_container = fmd.container not in ('mp4', 'aac', 'mp3', 'wav')
-      self.transcode_video = force_video or not self.can_play_video_codec(video_stream.codec)
-      self.transcode_audio = force_audio or fmd.container not in AUDIO_EXTS or not self.can_play_audio_codec(audio_codec)
-      self.transcode = transcode_container or self.transcode_video or self.transcode_audio
-      self.trans_fn = None
+    if prev_transcoder:
+      prev_transcoder.destroy()
+
+    print('Transcoder', fn)
+    transcode_container = fmd.container not in ('mp4', 'aac', 'mp3', 'wav')
+    self.transcode_video = force_video or not self.can_play_video_codec(video_stream.codec)
+    self.transcode_audio = force_audio or fmd.container not in AUDIO_EXTS or not self.can_play_audio_stream(self.audio_stream)
+    self.transcode = transcode_container or self.transcode_video or self.transcode_audio
+    self.trans_fn = None
 
     self.progress_bytes = 0
     self.progress_seconds = 0
@@ -272,16 +284,25 @@ class Transcoder(object):
       dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
       self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
       os.remove(self.trans_fn)
-      args = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index, '-map', self.audio_stream.index, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-              'ac3' if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])  # '-movflags', 'faststart'
+
+      device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+      ac3 = device_info.ac3 if device_info else None
+      transcode_audio_to = 'ac3' if (ac3 or ac3 is None) and audio_stream.channels > 2 else 'mp3'
+      
+      self.transcode_cmd = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index, '-map', self.audio_stream.index, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
+              transcode_audio_to if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])  # '-movflags', 'faststart'
 #      if self.audio_stream.mono:
 #        args += ['-ac', '2']
-      args += [self.trans_fn]
-      print(args)
-      self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-      t = threading.Thread(target=self.monitor)
-      t.daemon = True
-      t.start()
+      self.transcode_cmd += [self.trans_fn]
+      print(' '.join(["'%s'"%s if ' ' in s else s for s in self.transcode_cmd]))
+      if fake:
+        self.p = None
+        self.monitor()
+      else:
+        subprocess.Popen(self.transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        t = threading.Thread(target=self.monitor)
+        t.daemon = True
+        t.start()
     else:
       self.done = True
       self.done_callback()
@@ -301,8 +322,13 @@ class Transcoder(object):
     else:
       return video_codec in ('h264',)
 
-  def can_play_audio_codec(self, codec):
-    return codec in ('aac', 'mp3', 'ac3', 'eac3')
+  def can_play_audio_stream(self, stream):
+    device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+    ac3 = device_info.ac3 if device_info else None
+    if ac3:
+      return stream.codec in ('aac', 'mp3', 'ac3', 'eac3')
+    else:
+      return stream.codec in ('aac', 'mp3')
 
   def wait_for_byte(self, offset, buffer=128 * 1024 * 1024):
     if self.done: return
@@ -319,7 +345,7 @@ class Transcoder(object):
   def monitor(self):
     line = b''
     r = re.compile(r'=\s+')
-    while True:
+    while self.p:
       byte = self.p.stdout.read(1)
       if byte == b'' and self.p.poll() != None:
         break
@@ -335,9 +361,10 @@ class Transcoder(object):
           self.progress_bytes = int(d.get('size', '0kb')[:-2]) * 1024
           self.progress_seconds = parse_ffmpeg_time(d.get('time', '00:00:00'))
           line = b''
-    self.p.stdout.close()
+    if self.p: self.p.stdout.close()
     self.done = True
-    self.done_callback(did_transcode=True)
+    if self.done_callback:
+      self.done_callback(did_transcode=True)
 
   def destroy(self):
     # self.cast.media_controller.stop()
@@ -1211,12 +1238,16 @@ class Gnomecast(object):
                           Gtk.ButtonsType.OK,
                           msg)
     dialogWindow.set_title('File Info')
-    dialogWindow.set_default_size(1, 600)
+    dialogWindow.set_default_size(1, 400)
     
     if self.cast:
       title = 'Error playing %s' % os.path.basename(self.fn)
       body = '''
 [Please describe what happened here...]
+
+```
+[If possible, please run `ffprobe -i <fn>` and paste the output here...]
+```
 
 ------------------------------------------------------------
 
