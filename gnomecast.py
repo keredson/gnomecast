@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.4'
+__version__ = '1.9.5'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -291,15 +291,13 @@ class Transcoder(object):
       
       self.transcode_cmd = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index, '-map', self.audio_stream.index, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
               transcode_audio_to if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])  # '-movflags', 'faststart'
-#      if self.audio_stream.mono:
-#        args += ['-ac', '2']
       self.transcode_cmd += [self.trans_fn]
       print(' '.join(["'%s'"%s if ' ' in s else s for s in self.transcode_cmd]))
       if fake:
         self.p = None
         self.monitor()
       else:
-        subprocess.Popen(self.transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.p = subprocess.Popen(self.transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         t = threading.Thread(target=self.monitor)
         t.daemon = True
         t.start()
