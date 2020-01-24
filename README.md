@@ -42,6 +42,8 @@ sudo dnf install ffmpeg cairo-gobject-devel gobject-introspection-devel dbus-dev
 
 2. Install Python dependencies
 
+NOTE: ``dbus-python`` is an optional dependency.
+
 ```bash
 pip install pygobject dbus-python
 ```
