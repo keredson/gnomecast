@@ -522,8 +522,7 @@ class Gnomecast(object):
     self.cast_store.clear()
     self.cast_store.append([None, "Searching local network - please wait..."])
     self.cast_combo.set_active(0)
-    t = threading.Thread(target=self.load_casts, daemon=True, kwargs={'device':device}).start()
-    return t
+    threading.Thread(target=self.load_casts, daemon=True, kwargs={'device':device}).start()
 
   def inhibit_screensaver(self):
     if not self.saver_interface or self.inhibit_screensaver_cookie: return
