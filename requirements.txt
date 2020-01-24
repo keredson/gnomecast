@@ -3,3 +3,5 @@ pychromecast
 bottle
 pycaption
 paste
+pygobject
+dbus-python
