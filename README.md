@@ -34,6 +34,10 @@ If installing in a `mkvirtualenv` built virtual environment, make sure you inclu
 Fedora
 ~~~~~~
 
+This section describes how to install this application on Fedora inside a virtual environment
+without relying on ``python3-gobject`` system level package and ``--system-site-packages``
+virtualenv flag.
+
 1. Install OS level dependencies
 
 ```bash
@@ -45,13 +49,13 @@ sudo dnf install ffmpeg cairo-gobject-devel gobject-introspection-devel dbus-dev
 NOTE: ``dbus-python`` is an optional dependency.
 
 ```bash
-pip install pygobject dbus-python
+pip3 install pygobject dbus-python
 ```
 
 3. Install the application itself
 
 ```bash
-pip install gnomecast
+pip3 install gnomecast
 ```
 
 Run
