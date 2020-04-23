@@ -287,10 +287,12 @@ class Transcoder(object):
 
       device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
       ac3 = device_info.ac3 if device_info else None
-      transcode_audio_to = 'ac3' if (ac3 or ac3 is None) and audio_stream.channels > 2 else 'mp3'
+      transcode_audio_to = 'ac3' if (ac3 or ac3 is None) and audio_stream and audio_stream.channels > 2 else 'mp3'
       
-      self.transcode_cmd = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index, '-map', self.audio_stream.index, '-c:v', 'h264' if self.transcode_video else 'copy', '-c:a',
-              transcode_audio_to if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])  # '-movflags', 'faststart'
+      self.transcode_cmd = ['ffmpeg', '-i', self.source_fn, '-map', self.video_stream.index]
+      if self.audio_stream:
+        self.transcode_cmd += ['-map', self.audio_stream.index, '-c:a', transcode_audio_to if self.transcode_audio else 'copy'] + (['-b:a', '256k'] if self.transcode_audio else [])
+      self.transcode_cmd += ['-c:v', 'h264' if self.transcode_video else 'copy']  # '-movflags', 'faststart'
       self.transcode_cmd += [self.trans_fn]
       print(' '.join(["'%s'"%s if ' ' in s else s for s in self.transcode_cmd]))
       if fake:
@@ -321,6 +323,7 @@ class Transcoder(object):
       return video_codec in ('h264',)
 
   def can_play_audio_stream(self, stream):
+    if not stream: return True
     device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
     ac3 = device_info.ac3 if device_info else None
     if ac3:
@@ -1114,7 +1117,7 @@ class Gnomecast(object):
         fmd = row[8]
         fmd.wait()
         if not self.video_stream: self.video_stream = fmd.video_streams[0]
-        if not self.audio_stream: self.audio_stream = fmd.audio_streams[0]
+        if not self.audio_stream and fmd.audio_streams: self.audio_stream = fmd.audio_streams[0]
         if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
           self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
           row[7] = self.transcoder
@@ -1149,7 +1152,7 @@ class Gnomecast(object):
       fmd = row[8]
       if transcode_next and not transcoder:
         print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0], lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0] if fmd.audio_streams else None, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
         row[7] = transcoder
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
