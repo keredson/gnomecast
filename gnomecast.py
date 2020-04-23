@@ -147,7 +147,7 @@ class FileMetadata(object):
     self.ready = False
     def parse():
       self.thumbnail_fn = None
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_thumbnail_')[1]
+      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_pid%i_thumbnail_' % os.getpid())[1]
       os.remove(thumbnail_fn)
       self._ffmpeg_output = _ffmpeg_output if _ffmpeg_output else subprocess.check_output(
         ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn],
@@ -220,7 +220,7 @@ class FileMetadata(object):
     cmd = ['ffmpeg', '-y', '-i', self.fn, '-vn', '-an',]
     files = []
     for stream in self.subtitles:
-      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_subtitles_')[1]
+      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_pid%i_subtitles_' % os.getpid())[1]
       files.append(srt_fn)
       cmd += ['-map', stream.index, '-codec', 'srt', srt_fn]
       
@@ -283,7 +283,7 @@ class Transcoder(object):
     if self.transcode:
       self.done = False
       dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_', dir=dir)[1]
+      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_pid%i_transcode_' % os.getpid(), dir=dir)[1]
       os.remove(self.trans_fn)
 
       device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
@@ -377,11 +377,13 @@ class Transcoder(object):
       self.done_callback(did_transcode=True)
 
   def destroy(self):
-    # self.cast.media_controller.stop()
     if self.p and self.p.poll() is None:
       self.p.terminate()
     if self.trans_fn and os.path.isfile(self.trans_fn):
       os.remove(self.trans_fn)
+
+  def __del__(self):
+    self.destroy()
       
       
 class Gnomecast(object):
@@ -901,12 +903,10 @@ class Gnomecast(object):
       transcoder = row[7]
       if transcoder:
         transcoder.destroy()
-    if self.cast:
-      self.cast.media_controller.stop()
+      thumbnail_fn = row[4]
+      if thumbnail_fn and os.path.isfile(thumbnail_fn):
+        os.remove(thumbnail_fn)
     self.restore_screensaver()
-    for row in self.files_store:
-      if row[4] and os.path.isfile(row[4]):
-        os.remove(row[4])
     Gtk.main_quit()
 
   def forward_clicked(self, widget):
@@ -1528,7 +1528,35 @@ USAGE = '''
 python gnomecast.py [<media_filename>] [-d|--device <chromecast_name>] [-s|--subtitles <subtitles_filename>]
 '''.strip()
 
+
+def pid_running(pid):
+  try:
+    os.kill(pid, 0)
+  except OSError:
+    return False
+  else:
+    return True
+
+def delete_old_transcodes():
+  # if process is killed old transcoded files can be left around
+  # delete if found
+  for tmpdir in ['/tmp','/var/tmp']:
+    for fn in os.listdir(tmpdir):
+      if not fn.startswith('gnomecast_'): continue
+      fn = os.path.join(tmpdir, fn)
+      match = re.search(r'gnomecast_pid(\d+)_', fn)
+      if match:
+        pid = int(match.group(1))
+        if not pid_running(pid):
+          print('\tpid', pid, 'is dead, so deleting', fn)
+          os.remove(fn)
+      else:
+        print('old style gnomecast file', fn, 'found, so deleting...')
+        os.remove(fn)
+  
+
 def main():
+  delete_old_transcodes()
   caster = Gnomecast()
   arg_parse(sys.argv[1:], {'s':'subtitles', 'd':'device'}, caster.run, USAGE)
 
