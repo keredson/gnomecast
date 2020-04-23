@@ -256,7 +256,7 @@ class FileMetadata(object):
 
 class Transcoder(object):
 
-  def __init__(self, cast, fmd, video_stream, audio_stream, done_callback, prev_transcoder=None, force_audio=False, force_video=False, fake=False):
+  def __init__(self, cast, fmd, video_stream, audio_stream, done_callback, error_callback, prev_transcoder=None, force_audio=False, force_video=False, fake=False):
     self.fmd = fmd
     self.video_stream = video_stream
     self.audio_stream = audio_stream
@@ -278,6 +278,7 @@ class Transcoder(object):
     self.progress_bytes = 0
     self.progress_seconds = 0
     self.done_callback = done_callback
+    self.error_callback = error_callback
     print('transcode, transcode_video, transcode_audio', self.transcode, self.transcode_video, self.transcode_audio)
     if self.transcode:
       self.done = False
@@ -346,8 +347,10 @@ class Transcoder(object):
   def monitor(self):
     line = b''
     r = re.compile(r'=\s+')
+    total_output = b''
     while self.p:
       byte = self.p.stdout.read(1)
+      total_output += byte
       if byte == b'' and self.p.poll() != None:
         break
       if byte != b'':
@@ -362,7 +365,13 @@ class Transcoder(object):
           self.progress_bytes = int(d.get('size', '0kb')[:-2]) * 1024
           self.progress_seconds = parse_ffmpeg_time(d.get('time', '00:00:00'))
           line = b''
-    if self.p: self.p.stdout.close()
+    if self.p:
+      self.p.stdout.close()
+      if self.p.returncode:
+        print('--== transcode error ==--')
+        print(total_output)
+        self.error_callback(total_output.decode())
+        return
     self.done = True
     if self.done_callback:
       self.done_callback(did_transcode=True)
@@ -1119,7 +1128,7 @@ class Gnomecast(object):
         if not self.video_stream: self.video_stream = fmd.video_streams[0]
         if not self.audio_stream and fmd.audio_streams: self.audio_stream = fmd.audio_streams[0]
         if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
-          self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+          self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
           row[7] = self.transcoder
       if self.autoplay:
         self.autoplay = False
@@ -1152,7 +1161,7 @@ class Gnomecast(object):
       fmd = row[8]
       if transcode_next and not transcoder:
         print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0] if fmd.audio_streams else None, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), transcoder)
+        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0] if fmd.audio_streams else None, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
         row[7] = transcoder
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
@@ -1226,6 +1235,34 @@ class Gnomecast(object):
     self.update_media_button_states()
     threading.Thread(target=self.update_transcoders).start()
 
+
+  def error_callback(self, msg):
+    def f():
+      dialogWindow = Gtk.MessageDialog(self.win,
+                            Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                            Gtk.MessageType.INFO,
+                            Gtk.ButtonsType.OK,
+                            '\nGnomecast encountered an error converting your file.')
+      dialogWindow.set_title('Transcoding Error')
+      dialogWindow.set_default_size(1, 400)
+      
+      dialogBox = dialogWindow.get_content_area()
+      buffer1 = Gtk.TextBuffer()
+      buffer1.set_text(msg)
+      text_view = Gtk.TextView(buffer=buffer1)
+      text_view.set_editable(False)
+      scrolled_window = Gtk.ScrolledWindow()
+      scrolled_window.set_border_width(5)
+      # we scroll only if needed
+      scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+      scrolled_window.add(text_view)
+      dialogBox.pack_end(scrolled_window, True, True, 0)
+      dialogWindow.show_all()
+      response = dialogWindow.run()
+      dialogWindow.destroy()
+    GLib.idle_add(f)
+    
+
   def show_file_info(self, b=None):
     print('show_file_info')
     fmd = self.get_fmd()
@@ -1245,6 +1282,8 @@ class Gnomecast(object):
       title = 'Error playing %s' % os.path.basename(self.fn)
       body = '''
 [Please describe what happened here...]
+
+[Please link to the download here...]
 
 ```
 [If possible, please run `ffprobe -i <fn>` and paste the output here...]
