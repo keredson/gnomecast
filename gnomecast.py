@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.7'
+__version__ = '1.9.8'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -300,6 +300,10 @@ class Transcoder(object):
         self.p = None
         self.monitor()
       else:
+        print('---------------------')
+        print(' starting ffmpeg at:')
+        print('---------------------')
+        traceback.print_stack()
         self.p = subprocess.Popen(self.transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         t = threading.Thread(target=self.monitor)
         t.daemon = True
