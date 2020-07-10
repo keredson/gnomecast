@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.8'
+__version__ = '1.9.9'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -332,7 +332,7 @@ class Transcoder(object):
     device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
     ac3 = device_info.ac3 if device_info else None
     if ac3:
-      return stream.codec in ('aac', 'mp3', 'ac3', 'eac3')
+      return stream.codec in ('aac', 'mp3', 'ac3')
     else:
       return stream.codec in ('aac', 'mp3')
 
