@@ -51,6 +51,15 @@ $ python3 -m gnomecast
 
 *Please report bugs, including video files that don't work for you!*
 
+Code style
+----
+
+Run 
+```
+$ autopep8 --in-place gnomecast.py
+```
+
+
 My File Won't Play!
 -------------------
 
