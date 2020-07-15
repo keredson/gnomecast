@@ -51,6 +51,14 @@ $ python3 -m gnomecast
 
 *Please report bugs, including video files that don't work for you!*
 
+Tests
+-----
+
+Run the tests from the commandline:
+```
+$ python3 test_gnomecast.py
+```
+
 My File Won't Play!
 -------------------
 
