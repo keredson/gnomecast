@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.9'
+__version__ = '1.9.10'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -555,6 +555,9 @@ class Gnomecast(object):
 
   def load_casts(self, device=None):
     chromecasts = pychromecast.get_chromecasts()
+    # workaround for https://github.com/home-assistant-libs/pychromecast/issues/398
+    if isinstance(chromecasts, tuple) and len(chromecasts)==2:
+      chromecasts = chromecasts[0]
     def f():
       self.cast_store.clear()
       self.cast_store.append([None, "Select a cast device..."])
