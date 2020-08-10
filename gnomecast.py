@@ -45,7 +45,7 @@ Thanks! - Gnomecast
   print(ERROR_MESSAGE.format(line,line))
   sys.exit(1)
 
-__version__ = '1.9.10'
+__version__ = '1.9.11'
 
 if DEPS_MET:
   pycaption.WebVTTWriter._encode = lambda self, s: s
@@ -1123,30 +1123,33 @@ class Gnomecast(object):
       self.update_button_visible()
       self.update_media_button_states()
     GLib.idle_add(f)
+    
+  update_transcoders_lock = threading.Lock()
 
   def update_transcoders(self):
-    if self.cast and self.fn:
-      transcoder = None
-      for row in self.files_store:
-        if row[1]!=self.fn: continue
-        transcoder = row[7]
-        fmd = row[8]
-        fmd.wait()
-        if not self.video_stream: self.video_stream = fmd.video_streams[0]
-        if not self.audio_stream and fmd.audio_streams: self.audio_stream = fmd.audio_streams[0]
-        if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
-          self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
-          row[7] = self.transcoder
-      if self.autoplay:
-        self.autoplay = False
-        self.play_clicked(None)
-    if not self.cast:
-      for row in self.files_store:
-        transcoder = row[7]
-        if transcoder:
-          transcoder.destroy()
-          row[7] = None
-    GLib.idle_add(self.update_media_button_states)
+    with self.update_transcoders_lock:
+      if self.cast and self.fn:
+        transcoder = None
+        for row in self.files_store:
+          if row[1]!=self.fn: continue
+          transcoder = row[7]
+          fmd = row[8]
+          fmd.wait()
+          if not self.video_stream: self.video_stream = fmd.video_streams[0]
+          if not self.audio_stream and fmd.audio_streams: self.audio_stream = fmd.audio_streams[0]
+          if not transcoder or self.cast != transcoder.cast or self.fn != transcoder.source_fn or self.audio_stream!=transcoder.audio_stream:
+            self.transcoder = Transcoder(self.cast, fmd, self.video_stream, self.audio_stream, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
+            row[7] = self.transcoder
+        if self.autoplay:
+          self.autoplay = False
+          self.play_clicked(None)
+      if not self.cast:
+        for row in self.files_store:
+          transcoder = row[7]
+          if transcoder:
+            transcoder.destroy()
+            row[7] = None
+      GLib.idle_add(self.update_media_button_states)
 
   def check_for_next_in_queue(self):
     next = False
