@@ -21,6 +21,7 @@ What's New
 
 Install
 -------
+
 Please run:
 
 ```
@@ -29,6 +30,33 @@ $ pip3 install gnomecast
 ```
 
 If installing in a `mkvirtualenv` built virtual environment, make sure you include the `--system-site-packages` parameter to get the GTK bindings.
+
+Fedora
+~~~~~~
+
+This section describes how to install this application on Fedora inside a virtual environment
+without relying on ``python3-gobject`` system level package and ``--system-site-packages``
+virtualenv flag.
+
+1. Install OS level dependencies
+
+```bash
+sudo dnf install ffmpeg cairo-gobject-devel gobject-introspection-devel dbus-devel cairo-devel
+```
+
+2. Install Python dependencies
+
+NOTE: ``dbus-python`` is an optional dependency.
+
+```bash
+pip3 install pygobject dbus-python
+```
+
+3. Install the application itself
+
+```bash
+pip3 install gnomecast
+```
 
 Run
 ---

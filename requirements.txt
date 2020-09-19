@@ -3,3 +3,4 @@ pychromecast
 bottle
 pycaption
 paste
+pygobject
