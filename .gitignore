@@ -104,6 +104,7 @@ ENV/
 .idea/
 
 # Exclude Visual Studio solution files
+.vs
 *.sdf
 *.VC.opendb
 *.VC.db

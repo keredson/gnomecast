@@ -1,5 +1,6 @@
-import contextlib, os, re, signal, socket, subprocess, sys, tempfile, threading, time, traceback, urllib
+import contextlib, os, re, signal, socket, subprocess, sys, tempfile, threading, time, traceback, urllib, platform
 
+onWindows = platform.system() == 'Windows'
 
 DEPS_MET = True
 try:
@@ -147,8 +148,8 @@ class FileMetadata(object):
     self.ready = False
     def parse():
       self.thumbnail_fn = None
-      thumbnail_fn = tempfile.mkstemp(suffix='.jpg', prefix='gnomecast_pid%i_thumbnail_' % os.getpid())[1]
-      os.remove(thumbnail_fn)
+      with tempfile.NamedTemporaryFile(suffix='.jpg', prefix='gnomecast_pid%i_thumbnail_' % os.getpid()) as f:
+        thumbnail_fn = f.name
       self._ffmpeg_output = _ffmpeg_output if _ffmpeg_output else subprocess.check_output(
         ['ffmpeg', '-i', fn, '-f', 'ffmetadata', '-', '-f', 'mjpeg', '-vframes', '1', '-ss', '27', '-vf', 'scale=600:-1', thumbnail_fn],
         stderr=subprocess.STDOUT
@@ -220,9 +221,9 @@ class FileMetadata(object):
     cmd = ['ffmpeg', '-y', '-i', self.fn, '-vn', '-an',]
     files = []
     for stream in self.subtitles:
-      srt_fn = tempfile.mkstemp(suffix='.srt', prefix='gnomecast_pid%i_subtitles_' % os.getpid())[1]
-      files.append(srt_fn)
-      cmd += ['-map', stream.index, '-codec', 'srt', srt_fn]
+      with tempfile.NamedTemporaryFile(suffix='.srt', prefix='gnomecast_pid%i_subtitles_' % os.getpid()) as subf:
+        files.append(subf.name)
+        cmd += ['-map', stream.index, '-codec', 'srt', subf.name]
       
     print(cmd)
     try:
@@ -283,8 +284,8 @@ class Transcoder(object):
     if self.transcode:
       self.done = False
       dir = '/var/tmp' if os.path.isdir('/var/tmp') else None
-      self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_pid%i_transcode_' % os.getpid(), dir=dir)[1]
-      os.remove(self.trans_fn)
+      with tempfile.NamedTemporaryFile(suffix='.mp4', prefix='gnomecast_pid%i_transcode_' % os.getpid(), dir=dir) as f:
+        self.trans_fn = f.name
 
       device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
       ac3 = device_info.ac3 if device_info else None
@@ -439,7 +440,10 @@ class Gnomecast(object):
     ffmpeg_available = True
     print('check_ffmpeg')
     try:
-      print(subprocess.check_output(['which', 'ffmpeg']))
+      if onWindows:
+        print(subprocess.check_output(['where', 'ffmpeg']))
+      else:
+        print(subprocess.check_output(['which', 'ffmpeg']))
     except Exception as e:
       print(e, e.output)
       ffmpeg_available = False
@@ -473,7 +477,8 @@ class Gnomecast(object):
       print('ranges', ranges)
       offset, end = ranges[0]
       self.transcoder.wait_for_byte(offset)
-      response = bottle.static_file(self.transcoder.fn, root='/')
+      folderpath, filename = os.path.split(self.transcoder.fn)
+      response = bottle.static_file(filename, root=folderpath)
       if 'Last-Modified' in response.headers:
         del response.headers['Last-Modified']
       response.headers['Access-Control-Allow-Origin'] = '*'
@@ -757,8 +762,10 @@ class Gnomecast(object):
     self.update_button_visible()
 
     win.resize(1,1)
-
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+    
+    # Not working on Windows
+    if not onWindows:
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
 
 
   def add_extra_subtitle_options(self):
@@ -970,11 +977,12 @@ class Gnomecast(object):
       if os.path.isdir(downloads_dir):
         dialog.set_current_folder(downloads_dir)
 
-      filter_py = Gtk.FileFilter()
-      filter_py.set_name("Videos")
-      filter_py.add_mime_type("video/*")
-      filter_py.add_mime_type("audio/*")
-      dialog.add_filter(filter_py)
+      if not onWindows:  
+         filter_py = Gtk.FileFilter()
+         filter_py.set_name("Videos")
+         filter_py.add_mime_type("video/*")
+         filter_py.add_mime_type("audio/*")
+         dialog.add_filter(filter_py)
 
       response = dialog.run()
       if response == Gtk.ResponseType.OK:
@@ -1566,7 +1574,9 @@ def delete_old_transcodes():
   
 
 def main():
-  delete_old_transcodes()
+  # Might not be needed on Windows since using NamedTemporaryFile?
+  if not onWindows:
+    delete_old_transcodes()
   caster = Gnomecast()
   arg_parse(sys.argv[1:], {'s':'subtitles', 'd':'device'}, caster.run, USAGE)
 

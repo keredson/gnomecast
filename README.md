@@ -59,6 +59,30 @@ Run the tests from the commandline:
 $ python3 test_gnomecast.py
 ```
 
+Running on Windows
+------------------
+
+Follow the PyGObject installation guide for Windows from https://pygobject.readthedocs.io/en/latest/getting_started.html or below: 
+
+Covered in the guide above:
+
+1. Install Msys2 and run `mingw64.exe` from the installation folder to install Mingw64 Python and its dependencies. **Note**: The Mingw64 terminal will only be used for installing the prerequisites and not for actually running the program.
+1. Run the following commands: 
+   1. Run `pacman -Suy` once and it will prompt to exit and run it again. Close terminal, re-open and run `pacman -Suy` once more.
+   1. Execute `pacman -S mingw-w64-x86_64-gtk3 mingw-w64-x86_64-python3 mingw-w64-x86_64-python3-gobject`
+
+Not included in link but needed in order to be able to start Gnomecast: 
+
+1. Execute following: `pacman -S mingw-w64-x86_64-python3-pip mingw-w64-x86_64-python3-lxml` to get `pip` and `lxml` needed for one of the dependencies. 
+1. Install Python package dependencies: `pip install bottle pychromecast pycaption paste`
+
+After this, for running Gnomecast you will need to **start the Mingw64 Python installation from a regular Windows commandline**, not from the Mingw64 or MSYS terminal (*I believe it has to do with the way paths are handled between UNIX and Windows, but not sure*). 
+So just run the Mingw64 Python installation from Windows, for example, `D:\msys64\mingw64\bin\python.exe gnomecast.py` 
+Also, make sure you have ffmpeg available on your regular Windows environment!
+
+Make sure to properly set up the Mingw64 Python environment correctly in Visual Studio as well, if wishing to use it for debugging purposes.
+
+
 My File Won't Play!
 -------------------
 
