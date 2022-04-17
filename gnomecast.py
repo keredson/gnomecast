@@ -1174,7 +1174,7 @@ class Gnomecast(object):
       fmd = row[8]
       if transcode_next and not transcoder:
         print('prep_next_transcode', fn)
-        transcoder = Transcoder(self.cast, fmd, fmd.audio_streams[0] if fmd.audio_streams else None, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
+        transcoder = Transcoder(self.cast, fmd, fmd.video_streams[0] if fmd.video_streams else None, fmd.audio_streams[0] if fmd.audio_streams else None, lambda did_transcode=None: GLib.idle_add(self.update_status, did_transcode), self.error_callback, transcoder)
         row[7] = transcoder
         transcode_next = False
       if self.cast and self.fn and self.fn == fn and transcoder and transcoder.done:
