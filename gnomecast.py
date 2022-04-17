@@ -394,9 +394,12 @@ class Gnomecast(object):
 
   def __init__(self):
     self.ip = (([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [[(s.connect(("8.8.8.8", 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) + [None])[0]
-    with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-      s.bind(('0.0.0.0', 0))
-      self.port = s.getsockname()[1]
+    if 'GNOMECAST_HTTP_PORT' in os.environ:
+      self.port = int(os.environ['GNOMECAST_HTTP_PORT'])
+    else:
+      with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('0.0.0.0', 0))
+        self.port = s.getsockname()[1]
     self.app = bottle.Bottle()
     self.cast = None
     self.last_known_player_state = None
