@@ -290,7 +290,7 @@ class Transcoder(object):
       self.trans_fn = tempfile.mkstemp(suffix='.mp4', prefix='gnomecast_pid%i_transcode_' % os.getpid(), dir=dir)[1]
       os.remove(self.trans_fn)
 
-      device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+      device_info = HARDWARE.get((self.cast.cast_info.manufacturer, self.cast.cast_info.model_name))
       ac3 = device_info.ac3 if device_info else None
       transcode_audio_to = 'ac3' if (ac3 or ac3 is None) and audio_stream and audio_stream.channels > 2 else 'mp3'
       
@@ -322,8 +322,8 @@ class Transcoder(object):
 
   def can_play_video_codec(self, video_codec):
     h265 = True
-    if self.cast.device.cast_type == 'audio': h265 = False
-    device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+    if self.cast.cast_info.cast_type == 'audio': h265 = False
+    device_info = HARDWARE.get((self.cast.cast_info.manufacturer, self.cast.cast_info.model_name))
     if device_info and device_info.h265 is not None:
       h265 = device_info.h265
     if h265:
@@ -333,7 +333,7 @@ class Transcoder(object):
 
   def can_play_audio_stream(self, stream):
     if not stream: return True
-    device_info = HARDWARE.get((self.cast.device.manufacturer, self.cast.device.model_name))
+    device_info = HARDWARE.get((self.cast.cast_info.manufacturer, self.cast.cast_info.model_name))
     ac3 = device_info.ac3 if device_info else None
     if ac3:
       return stream.codec in ('aac', 'mp3', 'ac3')
@@ -570,14 +570,14 @@ class Gnomecast(object):
       self.cast_store.append([None, "Select a cast device..."])
       self.cast_store.append([-1, 'Add a non-local Chromecast...'])
       for cc in chromecasts:
-        friendly_name = cc.device.friendly_name
+        friendly_name = cc.cast_info.friendly_name
         if cc.cast_type!='cast':
           friendly_name = '%s (%s)' % (friendly_name, cc.cast_type)
         self.cast_store.append([cc, friendly_name])
       if device:
         found = False
         for i, cc in enumerate(chromecasts):
-          if device == cc.device.friendly_name:
+          if device == cc.cast_info.friendly_name:
             self.cast_combo.set_active(i+1)
             found = True
         if not found:
@@ -1285,7 +1285,7 @@ class Gnomecast(object):
     fmd = self.get_fmd()
     msg = '\n' + fmd.details()
     if self.cast:
-      msg += '\nDevice: %s (%s)' % (self.cast.device.model_name, self.cast.device.manufacturer) 
+      msg += '\nDevice: %s (%s)' % (self.cast.cast_info.model_name, self.cast.cast_info.manufacturer) 
     msg += '\nChromecast: v%s' % (__version__)
     dialogWindow = Gtk.MessageDialog(self.win,
                           Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
