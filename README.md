@@ -49,6 +49,12 @@ Or:
 $ python3 -m gnomecast
 ```
 
+You can also configure the port used for the HTTP server via the environment variable `GNOMECAST_HTTP_PORT`:
+
+```
+$ GNOMECAST_HTTP_PORT=8010 python3 -m gnomecast
+```
+
 *Please report bugs, including video files that don't work for you!*
 
 Tests
