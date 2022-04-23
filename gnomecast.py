@@ -228,13 +228,17 @@ class FileMetadata(object):
     try:
       output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
       for stream, srt_fn in zip(self.subtitles, files):
-        with open(srt_fn) as f:
-          caps = f.read()
-        #print('caps', caps)
-        converter = pycaption.CaptionConverter()
-        converter.read(caps, pycaption.detect_format(caps)())
-        stream._subtitles = converter.write(pycaption.WebVTTWriter())
-        os.remove(srt_fn)
+        try:
+          with open(srt_fn) as f:
+            caps = f.read()
+          #print('caps', caps)
+          converter = pycaption.CaptionConverter()
+          converter.read(caps, pycaption.detect_format(caps)())
+          stream._subtitles = converter.write(pycaption.WebVTTWriter())
+        except Exception as e:
+          traceback.print_exc()
+        finally:
+          os.remove(srt_fn)
     except subprocess.CalledProcessError as e:
       print('ERROR processing subtitles:', e)
       self.subtitles = []
