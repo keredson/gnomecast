@@ -426,7 +426,7 @@ class Gnomecast(object):
   def run(self, fn=None, device=None, subtitles=None):
     self.build_gui()
     self.init_casts(device=device)
-    threading.Thread(target=self.check_ffmpeg).start()
+    threading.Thread(target=self.check_ffmpeg, daemon=True).start()
     t = threading.Thread(target=self.start_server)
     t.daemon = True
     t.start()
@@ -547,7 +547,7 @@ class Gnomecast(object):
     self.cast_store.clear()
     self.cast_store.append([None, "Searching local network - please wait..."])
     self.cast_combo.set_active(0)
-    threading.Thread(target=self.load_casts, kwargs={'device':device}).start()
+    threading.Thread(target=self.load_casts, daemon=True, kwargs={'device':device}).start()
 
   def inhibit_screensaver(self):
     if not self.saver_interface or self.inhibit_screensaver_cookie: return
