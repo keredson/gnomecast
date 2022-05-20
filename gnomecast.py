@@ -33,9 +33,11 @@ except ImportError:
   line = "-"*70
   ERROR_MESSAGE = """
 {}
-Python package "gi" (for building the GU not found.\n
+Python package "gi" (for building the GUI not found.\n
 If on Debian or Ubuntu, please run:
 $ sudo apt-get install python3-gi\n
+If on Fedora or RedHat, please run:
+$ sudo dnf install python3-gobject
 For other distributions please look up the equivalent package.\n
 If this doesn't work, please report the error here:
 https://github.com/keredson/gnomecast\n
