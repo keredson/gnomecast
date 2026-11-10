@@ -103,11 +103,26 @@ def humanize_seconds(seconds: float) -> str:
         return f"{seconds}s"
 
 
+class MainLoopStopped(Exception):
+    """The main loop stopped, run_on_main_thread() can't run anything anymore."""
+
+
+_main_loop_stopped = threading.Event()
+
+
+def stop_main_thread_calls() -> None:
+    """Make waiting and future run_on_main_thread() calls from worker threads
+    raise MainLoopStopped. Call it when the app quits, otherwise they would
+    wait forever and keep the process alive."""
+    _main_loop_stopped.set()
+
+
 def run_on_main_thread(fn: Callable[[], T]) -> T:
     """Run `fn` on the GLib main loop thread and return its result.
 
-    Blocks the calling worker thread until `fn` has run. Called from the main
-    thread, it simply calls `fn` (waiting would deadlock).
+    Blocks the calling worker thread until `fn` has run, or raises
+    MainLoopStopped if the app quits first. Called from the main thread, it
+    simply calls `fn` (waiting would deadlock).
     """
     if threading.current_thread() is threading.main_thread():
         return fn()
@@ -125,8 +140,12 @@ def run_on_main_thread(fn: Callable[[], T]) -> T:
             done.set()
         return GLib.SOURCE_REMOVE
 
+    if _main_loop_stopped.is_set():
+        raise MainLoopStopped
     GLib.idle_add(call)
-    done.wait()
+    while not done.wait(0.1):
+        if _main_loop_stopped.is_set():
+            raise MainLoopStopped
     if errors:
         raise errors[0]
     return results[0]

@@ -38,10 +38,12 @@ from .subtitles import (
 )
 from .transcoder import AUDIO_EXTS, Transcoder
 from .utils import (
+    MainLoopStopped,
     humanize_seconds,
     is_pid_running,
     run_on_main_thread,
     start_thread,
+    stop_main_thread_calls,
     throttle,
 )
 from .version import __version__
@@ -627,6 +629,7 @@ class Gnomecast:
             if item.thumbnail_fn is not None and os.path.isfile(item.thumbnail_fn):
                 os.remove(item.thumbnail_fn)
         self.uninhibit_idle()
+        stop_main_thread_calls()
         if self.app is not None:
             self.app.quit()
         return False
@@ -711,6 +714,9 @@ class Gnomecast:
     def unselect_file(self):
         self.show_logo()
         self.fn = None
+        # streams belong to the file: the next one picks its own defaults
+        self.video_stream = None
+        self.audio_stream = None
         self.stream_store.remove_all()
         self.subtitle_store.remove_all()
         self.transcoder = None
@@ -759,6 +765,12 @@ class Gnomecast:
     update_transcoders_lock = threading.Lock()
 
     def update_transcoders(self):
+        try:
+            self._update_transcoders()
+        except MainLoopStopped:
+            logger.debug("App quit while updating transcoders")
+
+    def _update_transcoders(self):
         with self.update_transcoders_lock:
             if self.cast and self.fn is not None:
                 rows = run_on_main_thread(
@@ -771,7 +783,9 @@ class Gnomecast:
                     if fn != self.fn:
                         continue
                     fmd.wait()
-                    if not self.video_stream:
+                    if self.quitting:  # don't start ffmpeg after quit()'s cleanup
+                        return
+                    if not self.video_stream and fmd.video_streams:
                         self.video_stream = fmd.video_streams[0]
                     if not self.audio_stream and fmd.audio_streams:
                         self.audio_stream = fmd.audio_streams[0]
@@ -799,6 +813,9 @@ class Gnomecast:
                                 fn, t
                             )
                         )
+                    else:
+                        # still matches (e.g. the same file selected again)
+                        self.transcoder = transcoder
                 if self.autoplay:
                     self.autoplay = False
                     GLib.idle_add(self.play_clicked, None)
