@@ -2,7 +2,11 @@ import os
 import socket
 import threading
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, TypeVar
+
+from gi.repository import GLib
+
+T = TypeVar("T")
 
 
 def get_webserver_ip_address() -> str:
@@ -97,3 +101,32 @@ def humanize_seconds(seconds: float) -> str:
         return f"{minutes}m {seconds}s"
     else:
         return f"{seconds}s"
+
+
+def run_on_main_thread(fn: Callable[[], T]) -> T:
+    """Run `fn` on the GLib main loop thread and return its result.
+
+    Blocks the calling worker thread until `fn` has run. Called from the main
+    thread, it simply calls `fn` (waiting would deadlock).
+    """
+    if threading.current_thread() is threading.main_thread():
+        return fn()
+
+    done = threading.Event()
+    results: list[T] = []
+    errors: list[BaseException] = []
+
+    def call() -> bool:
+        try:
+            results.append(fn())
+        except BaseException as e:  # noqa: BLE001 - re-raised in the caller thread
+            errors.append(e)
+        finally:
+            done.set()
+        return GLib.SOURCE_REMOVE
+
+    GLib.idle_add(call)
+    done.wait()
+    if errors:
+        raise errors[0]
+    return results[0]

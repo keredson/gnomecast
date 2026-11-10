@@ -26,7 +26,13 @@ from .subtitles import (
     get_preferred_language,
 )
 from .transcoder import AUDIO_EXTS, Transcoder
-from .utils import humanize_seconds, is_pid_running, start_thread, throttle
+from .utils import (
+    humanize_seconds,
+    is_pid_running,
+    run_on_main_thread,
+    start_thread,
+    throttle,
+)
 from .version import __version__
 from .webserver import GnomecastWebServer
 
@@ -73,8 +79,9 @@ class Gnomecast:
         self.subtitles: str | None = None
         self.screen_saver_inhibitor = ScreenSaverInhibitor()
         self.autoplay = False
+        self.exit_code = 0
 
-    def run(self, fn=None, device=None, subtitles=None):
+    def run(self, fn=None, device=None, subtitles=None) -> int:
         self.build_gui()
         self.init_casts(device=device)
         start_thread(self.check_ffmpeg)
@@ -87,6 +94,7 @@ class Gnomecast:
         if fn and subtitles:
             self.autoplay = True
         self.main_loop.run()
+        return self.exit_code
 
     @property
     def cast(self):
@@ -101,8 +109,8 @@ class Gnomecast:
                 "fmpeg not found",
                 "Could not find ffmpeg. Please run 'sudo apt-get install ffmpeg'.",
             )
-            # TODO: there's a weird pause here closing the dialog.  why?
-            sys.exit(1)
+            self.exit_code = 1
+            GLib.idle_add(self.quit)
 
     def start_server(self):
         self.webserver = GnomecastWebServer(
@@ -503,12 +511,11 @@ class Gnomecast:
                 display = display[: MAX_LEN - 10] + "..." + display[-10:]
 
             def callback(fmd):
-                if os.path.isfile(fmd.thumbnail_fn):
-                    for row in self.files_store:
-                        if row[1] == fmd.fn:
-                            row[4] = fmd.thumbnail_fn
-
                 def f():
+                    if os.path.isfile(fmd.thumbnail_fn):
+                        for row in self.files_store:
+                            if row[1] == fmd.fn:
+                                row[4] = fmd.thumbnail_fn
                     if self.fn == fmd.fn and fmd.thumbnail_fn:
                         self.thumbnail_image.set_from_file(fmd.thumbnail_fn)
                         self.win.resize(1, 1)
@@ -756,12 +763,12 @@ class Gnomecast:
     def update_transcoders(self):
         with self.update_transcoders_lock:
             if self.cast and self.fn is not None:
-                transcoder = None
-                for row in self.files_store:
-                    if row[1] != self.fn:
+                rows = run_on_main_thread(
+                    lambda: [(row[1], row[7], row[8]) for row in self.files_store]
+                )
+                for fn, transcoder, fmd in rows:
+                    if fn != self.fn:
                         continue
-                    transcoder = row[7]
-                    fmd = row[8]
                     fmd.wait()
                     if not self.video_stream:
                         self.video_stream = fmd.video_streams[0]
@@ -784,19 +791,37 @@ class Gnomecast:
                             self.error_callback,
                             transcoder,
                         )
-                        row[7] = self.transcoder
+                        # synchronous, so the next update_transcoders call
+                        # sees this transcoder and destroys it if replaced
+                        run_on_main_thread(
+                            lambda fn=fn, t=self.transcoder: self.set_row_transcoder(
+                                fn, t
+                            )
+                        )
                 if self.autoplay:
                     self.autoplay = False
-                    self.play_clicked(None)
+                    GLib.idle_add(self.play_clicked, None)
             if not self.cast:
-                for row in self.files_store:
-                    transcoder = row[7]
-                    if transcoder:
-                        transcoder.destroy()
-                        row[7] = None
+                GLib.idle_add(self.destroy_all_transcoders)
             GLib.idle_add(self.update_media_button_states)
 
+    def set_row_transcoder(self, fn: str, transcoder: Transcoder | None) -> None:
+        for row in self.files_store:
+            if row[1] == fn:
+                row[7] = transcoder
+
+    def destroy_all_transcoders(self) -> None:
+        for row in self.files_store:
+            transcoder = row[7]
+            if transcoder:
+                transcoder.destroy()
+                row[7] = None
+
     def check_for_next_in_queue(self):
+        # called from the player monitor thread
+        GLib.idle_add(self._play_next_in_queue)
+
+    def _play_next_in_queue(self) -> None:
         next = False
         for row in self.files_store:
             fn = row[1]
@@ -804,7 +829,7 @@ class Gnomecast:
                 logger.info("Autoplaying next in queue: %s", fn)
                 self.autoplay = True
                 self.select_file(fn)
-                next = False
+                return
             if self.cast and self.fn is not None and self.fn == fn:
                 next = True
 
@@ -840,13 +865,16 @@ class Gnomecast:
 
     def get_duration(self, fn: str) -> None:
         duration = get_media_duration(Path(fn))
-        if fn == self.fn:
-            self.duration = duration
 
-        for row in self.files_store:
-            if row[1] == fn:
-                row[2] = duration
-                row[3] = humanize_seconds(duration)
+        def f():
+            if fn == self.fn:
+                self.duration = duration
+            for row in self.files_store:
+                if row[1] == fn:
+                    row[2] = duration
+                    row[3] = humanize_seconds(duration)
+
+        GLib.idle_add(f)
 
     def get_fmd(self):
         for row in self.files_store:
@@ -1153,7 +1181,7 @@ def start(fn=None, device=None, subtitles=None, verbose=False):
     setup_logging(verbose=verbose)
     logger.info("Gnomecast v%s starting", __version__)
     delete_old_transcodes()
-    Gnomecast().run(fn, device=device, subtitles=subtitles)
+    sys.exit(Gnomecast().run(fn, device=device, subtitles=subtitles))
 
 
 def main():
