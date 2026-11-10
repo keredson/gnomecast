@@ -32,9 +32,7 @@ jobs:
             libgirepository-2.0-dev \
             libcairo2-dev \
             gir1.2-gtk-4.0 \
-            gir1.2-adw-1 \
-            libdbus-1-dev \
-            libdbus-glib-1-dev
+            gir1.2-adw-1
       - name: Run pre-commit hooks
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         env:

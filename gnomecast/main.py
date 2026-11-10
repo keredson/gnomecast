@@ -30,7 +30,6 @@ from .player import (
     cast_from_host,
     discover_casts,
 )
-from .screensaver import ScreenSaverInhibitor
 from .subtitles import (
     convert_subtitles_to_webvtt,
     extract_single_subtitle,
@@ -74,7 +73,7 @@ class Gnomecast:
         self.transcoder: Transcoder | None = None
         self.duration: float | None = None
         self.subtitles: str | None = None
-        self.screen_saver_inhibitor = ScreenSaverInhibitor()
+        self.inhibit_cookie = 0
         self.autoplay = False
         self.exit_code = 0
         self.quitting = False
@@ -152,16 +151,35 @@ class Gnomecast:
         GLib.idle_add(f)
 
     def on_player_state_changed(self, state):
-        if state == "PLAYING":
-            self.screen_saver_inhibitor.start()
-        else:
-            self.screen_saver_inhibitor.stop()
-
+        # called from the player monitor thread
         def f():
+            if state == "PLAYING":
+                self.inhibit_idle()
+            else:
+                self.uninhibit_idle()
             self.update_media_button_states()
             self.update_status()
 
         GLib.idle_add(f)
+
+    def inhibit_idle(self) -> None:
+        """Keep the computer awake while casting, since it serves the media.
+
+        IDLE alone is implemented with the Wayland idle-inhibit protocol, which
+        only works while the window is visible; adding SUSPEND makes GTK go
+        through the session manager / portal instead.
+        """
+        if self.app is not None and not self.inhibit_cookie:
+            self.inhibit_cookie = self.app.inhibit(
+                self.win,
+                Gtk.ApplicationInhibitFlags.IDLE | Gtk.ApplicationInhibitFlags.SUSPEND,
+                "Casting media",
+            )
+
+    def uninhibit_idle(self) -> None:
+        if self.app is not None and self.inhibit_cookie:
+            self.app.uninhibit(self.inhibit_cookie)
+            self.inhibit_cookie = 0
 
     def on_player_position(self, seconds):
         GLib.idle_add(self.scrubber_adj.set_value, seconds)
@@ -608,7 +626,7 @@ class Gnomecast:
                 item.transcoder.destroy()
             if item.thumbnail_fn is not None and os.path.isfile(item.thumbnail_fn):
                 os.remove(item.thumbnail_fn)
-        self.screen_saver_inhibitor.stop()
+        self.uninhibit_idle()
         if self.app is not None:
             self.app.quit()
         return False
