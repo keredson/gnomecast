@@ -56,4 +56,4 @@ all = "error"
 exclude = ["tests"]
 
 [tool.uv]
-config-settings-package = { pygobject-stubs = { config = "Gtk3,Gdk3" } }
+config-settings-package = { pygobject-stubs = { config = "Gtk4,Gdk4" } }

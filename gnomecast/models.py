@@ -69,7 +69,3 @@ class ChoiceItem(GObject.Object):
         self.label = label
         self.value = value
         self.action = action
-
-
-# ChoiceItem.value of the "Add a non-local Chromecast..." entry
-ADD_HOST = object()

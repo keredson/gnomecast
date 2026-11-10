@@ -21,10 +21,19 @@ What's New
 
 Install
 -------
-Please run:
+Gnomecast needs GTK >= 4.10 and libadwaita >= 1.5 (Ubuntu 24.04+, Debian 13+, Fedora, Arch...).
+
+On Debian or Ubuntu, please run:
 
 ```
-$ sudo apt install ffmpeg python3-pip python3-gi
+$ sudo apt install ffmpeg python3-pip python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
+$ pip3 install gnomecast
+```
+
+On Fedora, please run:
+
+```
+$ sudo dnf install ffmpeg python3-pip python3-gobject gtk4 libadwaita
 $ pip3 install gnomecast
 ```
 
