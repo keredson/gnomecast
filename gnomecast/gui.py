@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk, Pango
 
-from .models import QueueItem
+from .models import ChoiceItem, QueueItem
 from .transcoder import AUDIO_EXTS
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,84 @@ def choose_subtitles_file(
         on_done(file.get_path())
 
     dialog.open(window, None, done)
+
+
+# max natural widths (in characters) of dropdown labels, ellipsized beyond
+DROPDOWN_BUTTON_MAX_CHARS = 25
+DROPDOWN_LIST_MAX_CHARS = 60
+
+
+def _choice_label(max_width_chars: int) -> Gtk.Label:
+    return Gtk.Label(
+        xalign=0,
+        ellipsize=Pango.EllipsizeMode.MIDDLE,
+        max_width_chars=max_width_chars,
+    )
+
+
+class _ChoiceListRow(Gtk.Box):
+    """An entry of an open dropdown: label, and a checkmark when selected."""
+
+    __gtype_name__ = "GnomecastChoiceListRow"
+
+    def __init__(self) -> None:
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.label = _choice_label(DROPDOWN_LIST_MAX_CHARS)
+        self.label.set_hexpand(True)
+        self.check = Gtk.Image(icon_name="object-select-symbolic")
+        self.append(self.label)
+        self.append(self.check)
+        self.handler_id = 0
+
+
+def set_ellipsized_factories(dropdown: Gtk.DropDown) -> None:
+    """Make a dropdown of ChoiceItem ellipsize long labels.
+
+    Gtk.DropDown's default factory never ellipsizes, so the longest entry
+    (e.g. a subtitle file name) sets the width of the window.
+    """
+
+    def setup_button(_factory, list_item: Gtk.ListItem) -> None:
+        list_item.set_child(_choice_label(DROPDOWN_BUTTON_MAX_CHARS))
+
+    def bind_button(_factory, list_item: Gtk.ListItem) -> None:
+        label = cast(Gtk.Label, list_item.get_child())
+        item = cast(ChoiceItem, list_item.get_item())
+        label.set_label(item.label)
+        label.set_tooltip_text(item.label)
+
+    def setup_list(_factory, list_item: Gtk.ListItem) -> None:
+        list_item.set_child(_ChoiceListRow())
+
+    def bind_list(_factory, list_item: Gtk.ListItem) -> None:
+        row = cast(_ChoiceListRow, list_item.get_child())
+        item = cast(ChoiceItem, list_item.get_item())
+        row.label.set_label(item.label)
+        row.label.set_tooltip_text(item.label)
+
+        def update_check(*_args: Any) -> None:
+            selected = dropdown.get_selected_item() is item
+            row.check.set_opacity(1.0 if selected else 0.0)
+
+        row.handler_id = dropdown.connect("notify::selected-item", update_check)
+        update_check()
+
+    def unbind_list(_factory, list_item: Gtk.ListItem) -> None:
+        row = cast(_ChoiceListRow, list_item.get_child())
+        if row.handler_id:
+            dropdown.disconnect(row.handler_id)
+            row.handler_id = 0
+
+    button_factory = Gtk.SignalListItemFactory()
+    button_factory.connect("setup", setup_button)
+    button_factory.connect("bind", bind_button)
+    dropdown.set_factory(button_factory)
+
+    list_factory = Gtk.SignalListItemFactory()
+    list_factory.connect("setup", setup_list)
+    list_factory.connect("bind", bind_list)
+    list_factory.connect("unbind", unbind_list)
+    dropdown.set_list_factory(list_factory)
 
 
 class QueueRow(Gtk.Box):

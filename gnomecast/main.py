@@ -18,6 +18,7 @@ from .gui import (
     ask_text,
     choose_media_files,
     choose_subtitles_file,
+    set_ellipsized_factories,
     show_error_dialog,
     show_text_dialog,
 )
@@ -265,6 +266,7 @@ class Gnomecast:
     ) -> Gtk.DropDown:
         expression = Gtk.PropertyExpression.new(ChoiceItem, None, "label")
         dropdown = Gtk.DropDown.new(store, expression)
+        set_ellipsized_factories(dropdown)
         dropdown.connect("notify::selected-item", self.on_dropdown_changed, on_choice)
         return dropdown
 
