@@ -9,6 +9,7 @@ from typing import Any, cast
 from gi.repository import Adw, Gio, GLib, GObject, Gtk, Pango
 
 from .models import QueueItem
+from .transcoder import AUDIO_EXTS
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,14 @@ class QueueRow(Gtk.Box):
         duration_label = Gtk.Label(xalign=1)
         progress_bar = Gtk.ProgressBar(valign=Gtk.Align.CENTER)
         progress_bar.set_size_request(80, -1)
-        playing_icon = Gtk.Image(icon_name="media-playback-start-symbolic")
+        # marks the selected file (not a button)
+        ext = os.path.splitext(item.path)[1].lstrip(".").lower()
+        playing_icon = Gtk.Image(
+            icon_name="audio-x-generic-symbolic"
+            if ext in AUDIO_EXTS
+            else "video-x-generic-symbolic",
+            tooltip_text="Selected file",
+        )
         for widget in (name_label, duration_label, progress_bar, playing_icon):
             self.append(widget)
 
