@@ -165,8 +165,8 @@ def choose_subtitles_file(
 
 
 class QueueRow(Gtk.Box):
-    """A row of the play queue: name, duration, transcode progress, and a
-    "playing" icon, bound to a QueueItem's properties."""
+    """A row of the play queue: selected-file icon, name, duration, and
+    transcode progress (bar and percentage), bound to a QueueItem."""
 
     __gtype_name__ = "GnomecastQueueRow"
 
@@ -179,12 +179,6 @@ class QueueRow(Gtk.Box):
             margin_start=6,
             margin_end=6,
         )
-        name_label = Gtk.Label(
-            xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.MIDDLE
-        )
-        duration_label = Gtk.Label(xalign=1)
-        progress_bar = Gtk.ProgressBar(valign=Gtk.Align.CENTER)
-        progress_bar.set_size_request(80, -1)
         # marks the selected file (not a button)
         ext = os.path.splitext(item.path)[1].lstrip(".").lower()
         playing_icon = Gtk.Image(
@@ -193,7 +187,22 @@ class QueueRow(Gtk.Box):
             else "video-x-generic-symbolic",
             tooltip_text="Selected file",
         )
-        for widget in (name_label, duration_label, progress_bar, playing_icon):
+        name_label = Gtk.Label(
+            xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.MIDDLE
+        )
+        duration_label = Gtk.Label(xalign=1)
+        progress_bar = Gtk.ProgressBar(valign=Gtk.Align.CENTER)
+        progress_bar.set_size_request(80, -1)
+        # fixed width and tabular digits, so the row doesn't move as it changes
+        progress_label = Gtk.Label(xalign=1, width_chars=5)
+        progress_label.add_css_class("numeric")
+        for widget in (
+            playing_icon,
+            name_label,
+            duration_label,
+            progress_bar,
+            progress_label,
+        ):
             self.append(widget)
 
         # bindings are dropped automatically when the item or row is finalized
@@ -201,4 +210,18 @@ class QueueRow(Gtk.Box):
         item.bind_property("name", name_label, "label", flags)
         item.bind_property("duration_str", duration_label, "label", flags)
         item.bind_property("progress", progress_bar, "fraction", flags)
-        item.bind_property("playing", playing_icon, "visible", flags)
+        item.bind_property(
+            "progress",
+            progress_label,
+            "label",
+            flags,
+            lambda _binding, progress: f"{int(progress * 100)} %",
+        )
+        # transparent rather than hidden, so names stay aligned across rows
+        item.bind_property(
+            "playing",
+            playing_icon,
+            "opacity",
+            flags,
+            lambda _binding, playing: 1.0 if playing else 0.0,
+        )
